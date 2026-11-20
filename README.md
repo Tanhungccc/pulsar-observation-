@@ -7,7 +7,7 @@ chạy được + đã kiểm chứng**.
 
 ```
 pulsar observation/
-├── PulsarObs.exe                   ★ GIAO DIỆN một-click (double-click để mở)
+├── PulsarObs.exe                   ★ GIAO DIỆN một-click (tải từ Releases, không nằm trong repo)
 ├── build_exe.bat                   đóng gói lại EXE sau khi sửa code
 ├── README.md                       ← file này
 ├── TNU SUMMER SCHOOL 2026...pdf    báo cáo thực nghiệm 2.4 m @423 MHz (đối chiếu: docs/02 §4.3)
@@ -48,6 +48,13 @@ pulsar observation/
 ```
 
 ---
+
+## 0. Tải nhanh (không cần Python)
+
+Tải **`PulsarObs.exe`** từ trang Releases:
+**https://github.com/Tanhungccc/pulsar-observation-/releases/latest**
+
+Double-click để mở. Repo **không chứa dữ liệu quan sát** — tải theo `DATA_SOURCES.md`.
 
 ## 1. Mở giao diện (cách dễ nhất)
 
