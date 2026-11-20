@@ -42,6 +42,50 @@ RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 
 sys.path.insert(0, CODE_DIR)
 
+
+def asset_path(name: str) -> str | None:
+    """Tìm file trong assets/ — chạy từ mã nguồn hoặc từ EXE đã đóng gói."""
+    cands = [os.path.join(APP_DIR, "assets", name),
+             os.path.join(ROOT_DIR, "assets", name)]
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        cands.insert(0, os.path.join(base, "assets", name))
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def apply_icon(root) -> str:
+    """Gắn icon cho cửa sổ + taskbar Windows. Trả về mô tả để selfcheck ghi lại."""
+    info = []
+    # Windows: tách tiến trình khỏi python.exe để taskbar dùng icon riêng
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "PulsarObs.RTP37")
+        info.append("AppUserModelID=ok")
+    except Exception:
+        pass
+    ico = asset_path("icon.ico")
+    if ico:
+        try:
+            root.iconbitmap(default=ico)
+            info.append(f"iconbitmap={os.path.basename(ico)}")
+        except Exception as e:
+            info.append(f"iconbitmap lỗi: {e!r}")
+    png = asset_path("icon.png")
+    if png:
+        try:
+            from tkinter import PhotoImage
+            img = PhotoImage(file=png)
+            root.iconphoto(True, img)
+            root._icon_ref = img          # giữ tham chiếu, nếu không sẽ mất
+            info.append(f"iconphoto={os.path.basename(png)}")
+        except Exception as e:
+            info.append(f"iconphoto lỗi: {e!r}")
+    return "; ".join(info) if info else "không có icon"
+
 # ép module dùng đúng thư mục data/results (không phụ thuộc nơi khởi chạy)
 import psr_detect            # noqa: E402
 import record_unattended     # noqa: E402
@@ -71,6 +115,7 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Pulsar Observation — POAM RTP-3.7 (TP.HCM)")
+        self.icon_info = apply_icon(self.root)
         self.root.geometry("1100x780")
         self.root.minsize(900, 620)
 
@@ -748,6 +793,9 @@ def selfcheck() -> int:
         chk("psr_hw.self_check", not psr_hw.self_check())
     except Exception as e:
         chk("psr_hw.self_check", False, repr(e))
+
+    ico = asset_path("icon.ico")
+    chk("icon app tồn tại (assets/icon.ico)", bool(ico), ico or "THIẾU")
 
     tmp = tempfile.mkdtemp(prefix="psrself_")
     try:
