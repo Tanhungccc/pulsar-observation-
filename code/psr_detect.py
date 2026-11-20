@@ -1,0 +1,522 @@
+# -*- coding: utf-8 -*-
+"""
+psr_detect.py — Pipeline phát hiện pulsar trên DỮ LIỆU THẬT (filterbank .fil),
+có kiểm chứng số liệu ĐẦU VÀO và ĐẦU RA.
+
+    python psr_detect.py                          # chạy trên data/B0329+54.fil
+    python psr_detect.py --file <đường_dẫn.fil> [--dm-ref 26.764] [--p 0.714519]
+
+Luồng xử lý:
+    V1  đọc .fil + kiểm chứng đầu vào (số mẫu, NaN, kênh nóng, RFI xung)
+    A1  flag kênh + chuẩn hoá bandpass
+    A9  khử RFI zero-DM (cảnh báo: không được cắt nhầm xung tán sắc)
+    A8  quét DM cho XUNG ĐƠN (lọc khớp boxcar đa độ rộng)
+    A7  gom cụm ứng viên → danh sách xung thật
+    A11c đo DM từng xung bằng trễ giữa các dải con
+    V2  kiểm chứng đầu ra: DM vs tham chiếu, số xung, SNR đối chứng nền
+    A4  fold theo P catalogue (nếu đủ ≥ 5 chu kỳ)
+
+Sản phẩm (results/):
+    real_detect_metrics.json   mọi số đo + trạng thái kiểm chứng
+    real_detect_report.txt     báo cáo dễ đọc
+    real_fig1_overview.png     waterfall thô + đã khử tán sắc
+    real_fig2_detection.png    chuỗi thời gian + quét DM + hồ sơ xung + trễ dải con
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from psr_core import (K_DM, boxcar_snr, dedisperse, ensure_utf8_stdout,
+                      find_pulses, fold, profile_snr, subband_dm_single,
+                      zero_dm_excise, mask_bad_channels, bandpass_normalize)
+from psr_fil import read_fil
+from psr_fits import read_psrfits
+
+
+# đuôi file IQ THÔ (chưa channelize) — phải channelize trước khi phân tích
+IQ_EXTS = (".sigmf-data", ".cu8", ".cs8", ".ci8", ".cu16", ".cs16", ".ci16",
+           ".cf32", ".fc32", ".iq", ".wav", ".npy")
+
+
+def load_any(path: str, max_seconds: float | None = None, nchan_iq: int = 256,
+             navg_iq: int = 16):
+    """Đọc file bất kỳ: SIGPROC .fil | PSRFITS .fits | **IQ thô** (SigMF/.cu8/.wav…).
+
+    Với IQ thô, bước A1 (channelize) được thực hiện ngay tại đây — đúng đường
+    đi thật của tín hiệu: dây → SDR → I/Q → FFT → kênh → tìm pulsar.
+    """
+    low = path.lower()
+    if low.endswith((".fits", ".psrfits", ".sf", ".rf", ".cf")):
+        return read_psrfits(path, max_seconds=max_seconds)
+    if low.endswith(IQ_EXTS):
+        from psr_iq import read_iq_as_dyn
+        return read_iq_as_dyn(path, nchan=nchan_iq, navg=navg_iq,
+                              max_seconds=max_seconds)
+    return read_fil(path, max_seconds=max_seconds)
+import psr_plots as pp
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RESULTS = os.path.join(os.path.dirname(HERE), "results")
+DATA = os.path.join(os.path.dirname(HERE), "data")
+
+# Catalogue tham chiếu B0329+54 (ATNF) — chỉ dùng để KIỂM CHỨNG, không để "tìm"
+REF = {"B0329+54": {"dm": 26.7641, "p_s": 0.714519699557, "w50_ms": 12.0}}
+
+
+def _jsonify(o):
+    """Chuyển numpy bool/int/float → kiểu Python chuẩn để json.dump không lỗi."""
+    if isinstance(o, dict):
+        return {k: _jsonify(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_jsonify(v) for v in o]
+    if isinstance(o, np.bool_):
+        return bool(o)
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return float(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    return o
+
+
+
+def _write_min_report(out_dir: str, path: str, h: dict, m: dict):
+    """Báo cáo tối thiểu khi dữ liệu không dùng được (rỗng/quá ngắn/phẳng)."""
+    lines = [f"BÁO CÁO (không phân tích) — {os.path.basename(path)}",
+             f"trạng thái: {m.get('status')}",
+             f"{h.get('nchans')} kênh × {h.get('ntime')} mẫu, "
+             f"{h.get('t_s'):.2f} s, {h.get('nbits')} bit",
+             "vấn đề: " + ("; ".join(m.get("problems", [])) or "dữ liệu quá ngắn")]
+    txt = "\n".join(lines)
+    with open(os.path.join(out_dir, "detect_report.txt"), "w",
+              encoding="utf-8") as fh:
+        fh.write(txt + "\n")
+    with open(os.path.join(out_dir, "detect_metrics.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(_jsonify(m), fh, ensure_ascii=False, indent=2)
+    print(txt)
+
+
+def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
+           dm_max: float = 60.0, dm_step: float = 0.25,
+           pulse_thresh: float = 8.0, rebin: int = 8,
+           nchan_iq: int = 256, navg_iq: int = 16) -> dict:
+    os.makedirs(RESULTS, exist_ok=True)
+    # GOM sản phẩm của MỘT lần chạy vào MỘT thư mục: tên theo file dữ liệu
+    # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if not stem:
+        stem = time.strftime("%Y%m%d")
+    out_dir = os.path.join(RESULTS, stem)
+    os.makedirs(out_dir, exist_ok=True)
+    m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {}}
+
+    # ---------------- V1: đọc + kiểm chứng đầu vào (tự nhận .fil/.fits)
+    try:
+        h, dyn = load_any(path, nchan_iq=nchan_iq, navg_iq=navg_iq)
+    except Exception as e:
+        # file hỏng/rỗng/sai định dạng: KHÔNG crash — ghi chẩn đoán rồi dừng
+        m["status"] = "unreadable"
+        m["problems"] = [f"{type(e).__name__}: {e}"]
+        print(f"→ KHÔNG ĐỌC ĐƯỢC {os.path.basename(path)}: {e}")
+        with open(os.path.join(out_dir, "detect_report.txt"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(f"BÁO CÁO CHẨN ĐOÁN — {os.path.basename(path)}\n"
+                     f"trạng thái: unreadable\n"
+                     f"lỗi: {type(e).__name__}: {e}\n")
+        with open(os.path.join(out_dir, "detect_metrics.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump(_jsonify(m), fh, ensure_ascii=False, indent=2)
+        return m
+    freqs = h["freqs_mhz"]
+    tsamp = h["tsamp_s"]
+    m["input"] = {k: h.get(k) for k in ("source", "nbits", "nchans", "tsamp_s",
+                                        "tstart", "t_s", "ntime")}
+    m["input"]["band_mhz"] = [float(freqs.min()), float(freqs.max())]
+    m["input"]["validation"] = h["validation"]
+    print(f"→ V1 đọc {path}: {h['nchans']} kênh, {h['ntime']} mẫu, "
+          f"{h['t_s']:.2f} s, {freqs.min():.0f}–{freqs.max():.0f} MHz")
+    for w in h.get("read_warnings", []) or h["validation"]["warnings"]:
+        print(f"   ⚠ {w}")
+
+    # ---- CHẶN SỚM: dữ liệu không dùng được thì báo rõ, KHÔNG crash
+    m["status"] = "ok"
+    if not h["validation"]["ok"]:
+        m["status"] = "invalid"
+        m["problems"] = h["validation"]["problems"]
+        print(f"→ DỪNG: dữ liệu không hợp lệ: {h['validation']['problems']}")
+        _write_min_report(out_dir, path, h, m)
+        return m
+    # Guard theo THỜI LƯỢNG (không chỉ số mẫu): 0.2 s vẫn đủ bắt giant pulse
+    # (dữ liệu Dwingeloo), nhưng 4 ms (200 mẫu) thì vô nghĩa.
+    if h["ntime"] < 100 or h["t_s"] < 0.05:
+        m["status"] = "too_short"
+        print(f"→ DỪNG: quá ngắn ({h['ntime']} mẫu, {h['t_s']:.4f} s) — "
+              f"cần ≥ 100 mẫu VÀ ≥ 0.05 s (0.2 s vẫn đủ bắt giant pulse)")
+        _write_min_report(out_dir, path, h, m)
+        return m
+
+    # ---------------- A1: flag kênh + bandpass
+    good = mask_bad_channels(dyn.astype(np.float64), sigma=5.0)
+    dyn_n = bandpass_normalize(dyn[good].astype(np.float64))
+    f_g = freqs[good]
+    m["stage"]["channels_kept"] = int(good.sum())
+    m["stage"]["channels_flagged"] = int((~good).sum())
+    print(f"→ A1 giữ {good.sum()}/{len(good)} kênh")
+
+    # ---------------- A9: zero-DM RFI
+    dyn_z, bad_t = zero_dm_excise(dyn_n, threshold=6.0)
+    m["stage"]["zero_dm_cut_samples"] = int(bad_t.sum())
+    m["stage"]["zero_dm_cut_frac"] = float(bad_t.mean())
+    print(f"→ A9 zero-DM: cắt {bad_t.sum()} mẫu ({100*bad_t.mean():.1f}%)")
+
+    # ---------------- gộp kênh để quét DM nhanh (trải nội kênh phải < tsamp)
+    nch = dyn_z.shape[0]
+    # Gộp kênh để quét DM nhanh, nhưng phải GIỮ ĐỦ KÊNH: gộp quá tay làm
+    # trải nội kênh lớn → mất độ phân giải DM (đã gặp: 64 kênh gộp 8× còn 8).
+    TARGET_CH = 128
+    rb = max(1, min(rebin, nch // TARGET_CH)) if nch > TARGET_CH else 1
+    nnew = nch // rb
+    dyn_rb = dyn_z[: nnew * rb].reshape(nnew, rb, -1).mean(axis=1)
+    f_rb = f_g[: nnew * rb].reshape(nnew, rb).mean(axis=1)
+    m["stage"]["rebin"] = rb
+    print(f"→ gộp {rb}× → {nnew} kênh ({np.diff(f_rb).mean()*1e3:.0f} kHz/kênh)")
+
+    # ---------------- A8: quét DM
+    # Nếu biết P catalogue và đủ chu kỳ → quét DM bằng FOLD (nhạy gấp nhiều
+    # lần: cộng dồn mọi xung). Nếu không (dữ liệu xung đơn) → lọc khớp boxcar.
+    use_fold_scan = p_ref is not None and h["t_s"] > 5 * p_ref
+    dm_grid = np.arange(0.0, dm_max + dm_step, dm_step)
+    widths = (2, 4, 8, 16, 32, 64)
+    snr_dm = np.zeros(len(dm_grid))
+    best_w = np.zeros(len(dm_grid), dtype=int)
+    for i, dm in enumerate(dm_grid):
+        s, _ = dedisperse(dyn_rb, f_rb, dm, tsamp)
+        if use_fold_scan:
+            pr, _ = fold(s, tsamp, p_ref, nbins=256)
+            snr_dm[i] = profile_snr(pr)[0]
+        else:
+            z, w, _ = boxcar_snr(s, widths=widths)
+            snr_dm[i] = z
+            best_w[i] = w
+    k = int(np.argmax(snr_dm))
+    dm_best = float(dm_grid[k])
+
+    # ---- ZERO-DM VETO: RFI băng rộng cho SNR cao NHẤT ở DM = 0 và giảm dần.
+    # Pulsar thật: khử tán sắc đúng DM làm xung nét hơn → SNR tăng theo DM.
+    snr_dm0 = float(snr_dm[0]) if abs(dm_grid[0]) < 1e-9 else None
+    dm_ratio = (float(snr_dm[k]) / max(snr_dm0, 1e-9)
+                if snr_dm0 is not None else float("nan"))
+    zero_dm_dominated = (snr_dm0 is not None and dm_best > 0
+                         and dm_ratio < 1.15 and snr_dm0 > 8.0)
+    m["stage"]["snr_zero_dm"] = None if snr_dm0 is None else round(snr_dm0, 2)
+    m["stage"]["dm_ratio_vs_zero"] = None if np.isnan(dm_ratio) else round(dm_ratio, 2)
+    m["stage"]["zero_dm_dominated"] = bool(zero_dm_dominated)
+    if zero_dm_dominated:
+        print(f"→ ⚠ RFI ZERO-DM: SNR ở DM=0 ({snr_dm0:.0f}) ≥ SNR đỉnh "
+              f"({snr_dm[k]:.0f}, DM={dm_best:.1f}) — tỷ số {dm_ratio:.2f}. "
+              f"Tín hiệu không tán sắc ⇒ KHÔNG phải pulsar.")
+    scan_kind = "fold tại P catalogue" if use_fold_scan else "xung đơn (boxcar)"
+    print(f"→ A8 quét DM kiểu [{scan_kind}]: đỉnh {snr_dm[k]:.1f}σ tại "
+          f"DM = {dm_best:.2f} (bước {dm_step})")
+    m["stage"]["dm_scan_kind"] = scan_kind
+    m["stage"]["dm_scan_peak_snr"] = round(float(snr_dm[k]), 2)
+    m["stage"]["dm_scan_best"] = dm_best
+
+    # độ phân giải DM CỦA CHÍNH DỮ LIỆU (không phải của thuật toán):
+    # dịch DM 1 đơn vị gây trễ = K·(1/f_lo²−1/f_hi²); không phân biệt được
+    # khi trễ này vượt ~nửa bề rộng xung.
+    delay_per_dm_ms = abs(K_DM * (1 / f_rb.min()**2 - 1 / f_rb.max()**2)) * 1e3
+    if use_fold_scan:
+        _s, _w, _ph = profile_snr(fold(s, tsamp, p_ref, nbins=256)[0])
+        w50_est_ms = _w * (p_ref / 256.0) * 1e3
+    else:
+        w50_est_ms = (best_w[k] * tsamp * 1e3) if best_w[k] > 0 else 10.0
+    dm_res_data = max(w50_est_ms / (2 * delay_per_dm_ms), dm_step)
+    m["stage"]["dm_resolution_data"] = round(dm_res_data, 2)
+    print(f"→ độ phân giải DM của DỮ LIỆU này: ±{dm_res_data:.2f} "
+          f"(W={w50_est_ms:.1f} ms, {delay_per_dm_ms*1e3:.1f} µs/DM)")
+
+    # ---------------- A7: khử tán sắc + tìm xung
+    s_dd, dropped = dedisperse(dyn_rb, f_rb, dm_best, tsamp)
+    pulses = [] if zero_dm_dominated else find_pulses(
+        s_dd, tsamp, threshold=pulse_thresh,
+        min_sep_s=3 * tsamp * max(widths))
+    if zero_dm_dominated:
+        print("→ bỏ qua tìm xung đơn: dữ liệu bị RFI zero-DM chiếm ưu thế")
+    print(f"→ A7 tìm xung: {len(pulses)} xung > {pulse_thresh}σ")
+    m["stage"]["n_pulses"] = len(pulses)
+
+    # ---------------- A11c: DM từng xung + LỌC NHẤT QUÁN DM (chống RFI hẹp băng)
+    # RFI hẹp băng sống sót bước zero-DM nhưng cho DM dải con vô nghĩa;
+    # xung thật phải cho DM KHỚP với DM quét → đây là bộ lọc cuối cùng.
+    dm_tol = max(3.0, 0.12 * dm_best, dm_res_data)
+    dm_list, rejected = [], []
+    for p in pulses:
+        try:
+            r = subband_dm_single(dyn_z, f_g, tsamp, p["t_s"],
+                                  window_s=0.05, nsub=8,
+                                  dm_guess=dm_best,
+                                  width_samples=max(2, p["width_samples"]))
+            p["dm_sub"] = round(r["dm"], 3)
+            p["dm_sub_err"] = round(r["dm_err"], 3)
+            consistent = abs(r["dm"] - dm_best) <= dm_tol
+            p["dm_consistent"] = bool(consistent)
+            if consistent:
+                dm_list.append(r["dm"])
+            else:
+                rejected.append(p)
+        except Exception as e:
+            p["dm_sub"] = None
+            p["dm_consistent"] = False
+            p["dm_error"] = repr(e)
+            rejected.append(p)
+            print(f"   ⚠ xung t={p['t_s']*1e3:.0f} ms: lỗi đo DM dải con: {e!r}")
+    pulses_ok = [p for p in pulses if p.get("dm_consistent")]
+    print(f"→ A11c DM dải con (nhất quán ±{dm_tol:.1f}): "
+          f"{len(pulses_ok)}/{len(pulses)} xung"
+          + (f" | DM = {np.mean(dm_list):.2f} ± {np.std(dm_list):.2f}"
+             if dm_list else ""))
+    if rejected:
+        print(f"   loại {len(rejected)} ứng viên không nhất quán DM (RFI hẹp băng)")
+
+    # ---------------- KIỂM TRA CÙNG PHA THEO P (bằng chứng cuối)
+    # Xung thật của cùng pulsar phải đến CÙNG PHA (mod P); RFI thì không.
+    train = []
+    if p_ref and pulses_ok:
+        for p in pulses_ok:
+            p["phase_ms"] = round((p["t_s"] % p_ref) * 1e3, 1)
+        phases = np.array([p["phase_ms"] for p in pulses_ok])
+        used_ph = np.zeros(len(phases), dtype=bool)
+        for i in np.argsort(-np.array([p["snr"] for p in pulses_ok])):
+            if used_ph[i]:
+                continue
+            grp = [j for j in range(len(phases))
+                   if not used_ph[j]
+                   and abs(phases[j] - phases[i]) < max(30.0, 3 * pulses_ok[i]["width_ms"])]
+            for j in grp:
+                used_ph[j] = True
+            if len(grp) >= 2:
+                train = [pulses_ok[j] for j in grp]
+                break
+        if train:
+            phs = [p["phase_ms"] for p in train]
+            print(f"→ CÙNG PHA (mod P = {p_ref*1e3:.1f} ms): {len(train)} xung tại "
+                  f"pha {np.mean(phs):.1f} ± {np.std(phs):.1f} ms → XÁC NHẬN pulsar")
+        else:
+            print("→ không tìm được chuỗi xung cùng pha")
+    m["stage"]["n_pulses_consistent"] = len(pulses_ok)
+    m["stage"]["n_pulses_rejected_rfi"] = len(rejected)
+    m["stage"]["dm_tolerance"] = round(dm_tol, 2)
+    if dm_list:
+        m["stage"]["dm_subband_mean"] = round(float(np.mean(dm_list)), 3)
+        m["stage"]["dm_subband_std"] = round(float(np.std(dm_list)), 3)
+
+    # ---------------- V2: kiểm chứng ĐẦU RA
+    checks = []
+    if dm_ref is not None:
+        if m["stage"].get("dm_train_mean") is not None:
+            dme = m["stage"]["dm_train_mean"]
+            src = "chuỗi xung cùng pha"
+        elif m["stage"].get("dm_subband_mean") is not None:
+            dme = m["stage"]["dm_subband_mean"]
+            src = "xung nhất quán"
+        else:
+            dme = dm_best
+            src = f"quét DM kiểu {scan_kind}"
+        err = abs(dme - dm_ref)
+        tol = max(1.5, 0.06 * dm_ref)
+        if dm_res_data > 0.25 * dm_ref:
+            # dữ liệu KHÔNG đủ phân giải DM (băng hẹp, xung rộng): kiểm chứng
+            # DM trở nên vô nghĩa — không được báo FAIL oan.
+            checks.append(dict(
+                name="DM vs tham chiếu", ok=True,
+                detail=f"KHÔNG ÁP DỤNG: độ phân giải DM của dữ liệu "
+                       f"±{dm_res_data:.0f} > 25% DM tham chiếu "
+                       f"({dm_ref:.1f}); cần băng thông rộng hơn để đo DM"))
+        else:
+            checks.append(dict(name=f"DM vs tham chiếu ({src})",
+                               ok=err < tol,
+                               detail=f"đo {dme:.2f} vs {dm_ref:.3f} "
+                                      f"(lệch {err:.2f}, ngưỡng {tol:.1f})"))
+    if p_ref and train:
+        phs = [p["phase_ms"] for p in train]
+        checks.append(dict(name="chuỗi xung cùng pha (mod P)", ok=len(train) >= 2,
+                           detail=f"{len(train)} xung tại pha {np.mean(phs):.1f} ± "
+                                  f"{np.std(phs):.1f} ms (P = {p_ref*1e3:.1f} ms)"))
+    elif p_ref and not pulses_ok:
+        # dữ liệu kiểu FOLD (xung đơn yếu dưới ngưỡng) — fold sẽ chịu trách nhiệm
+        checks.append(dict(name="chuỗi xung cùng pha (mod P)", ok=True,
+                           detail="bỏ qua: không có xung đơn trên ngưỡng "
+                                  "(bình thường với dữ liệu fold)"))
+    elif p_ref:
+        checks.append(dict(name="chuỗi xung cùng pha (mod P)", ok=False,
+                           detail="có ứng viên nhưng không thành chuỗi cùng pha "
+                                  "(nghi RFI)"))
+    m["stage"]["n_pulses_in_train"] = len(train)
+    if train:
+        dm_t = [p["dm_sub"] for p in train if p.get("dm_sub") is not None]
+        if dm_t:
+            m["stage"]["dm_train_mean"] = round(float(np.mean(dm_t)), 3)
+            m["stage"]["dm_train_std"] = round(float(np.std(dm_t)), 3)
+    if pulses_ok:
+        sp = sorted((p["t_s"] for p in pulses_ok), reverse=True)
+        gaps = [sp[i] - sp[i + 1] for i in range(len(sp) - 1)]
+        det = (f"{len(pulses_ok)} xung nhất quán DM"
+               + (f", khe thời gian {[round(g*1e3) for g in gaps]} ms"
+                  if gaps else ""))
+        # Giant pulse: 1 xung là ĐÚNG (dữ liệu 0.2 s không có chu kỳ nào).
+        # Yêu cầu ≥ 2 chỉ khi dữ liệu dài ≥ 2.5 chu kỳ.
+        min_p = 2 if (p_ref and h["t_s"] > 2.5 * p_ref) else 1
+        checks.append(dict(name="xung thật (nhất quán DM)",
+                           ok=len(pulses_ok) >= min_p, detail=det))
+    # đối chứng nền: xáo TRỘN TỪNG KÊNH (phá liên kết liên tần số → phá vệt
+    # tán sắc, giữ nguyên thống kê mỗi kênh). Không được cho SNR cao.
+    rng = np.random.default_rng(0)
+    shuffled = np.empty_like(dyn_rb)
+    for i in range(dyn_rb.shape[0]):
+        shuffled[i] = dyn_rb[i, rng.permutation(dyn_rb.shape[1])]
+    s_n, _ = dedisperse(shuffled, f_rb, dm_best, tsamp)
+    z_n, _, _ = boxcar_snr(s_n, widths=widths)
+    checks.append(dict(name="đối chứng nền (trộn thời gian)",
+                       ok=z_n < 12.0,
+                       detail=f"SNR nền {z_n:.1f} (phải < 12; xung thật "
+                              f"{snr_dm[k]:.0f})"))
+    if p_ref is not None and h["t_s"] > 5 * p_ref:
+        prof, _ = fold(s_dd, tsamp, p_ref, nbins=256)
+        sfp = profile_snr(prof)[0]
+        checks.append(dict(name="fold tại P catalogue", ok=sfp > 8.0,
+                           detail=f"SNR fold = {sfp:.1f}"))
+    else:
+        checks.append(dict(name="fold tại P catalogue", ok=True,
+                           detail=f"bỏ qua: file chỉ {h['t_s']:.1f} s "
+                                  f"< 5×P — dữ liệu thiết kế cho xung đơn"))
+    if m["stage"].get("zero_dm_dominated"):
+        checks.append(dict(name="không bị RFI zero-DM chiếm ưu thế", ok=False,
+                           detail=f"SNR(DM=0) = {m['stage']['snr_zero_dm']}, "
+                                  f"tỷ số {m['stage']['dm_ratio_vs_zero']} < 1.15 "
+                                  f"⇒ RFI băng rộng, không phải pulsar"))
+        m["status"] = "rfi_zero_dm"
+    m["output_checks"] = checks
+    for c in checks:
+        print(f"   [{'OK' if c['ok'] else 'FAIL'}] {c['name']}: {c['detail']}")
+    m["output_ok"] = all(c["ok"] for c in checks)
+
+    # ---------------- metrics chi tiết từng xung
+    m["pulses"] = [{k: (round(v, 4) if isinstance(v, float) else v)
+                    for k, v in p.items()} for p in pulses]
+    m["dm_grid"] = [round(float(x), 3) for x in dm_grid[:: max(1, len(dm_grid)//200)]]
+    m["snr_dm_curve"] = [round(float(x), 2) for x in snr_dm[:: max(1, len(dm_grid)//200)]]
+
+    # ================= HÌNH 1: waterfall thô + đã khử tán sắc
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(2, 1, figsize=(9.2, 7.2))
+    pp.plot_waterfall(dyn_z, f_g, tsamp, ax=ax[0],
+                      title=f"(a) Waterfall CHƯA khử tán sắc — {h['source']}, "
+                            f"{freqs.min():.0f}–{freqs.max():.0f} MHz, "
+                            f"tsamp = {tsamp*1e6:.0f} µs")
+    # dựng lại waterfall đã khử tán sắc để so sánh (DỊCH SỚM từng kênh:
+    # output[j] = input[j+shift] — chú ý dấu, dịch muộn sẽ làm vệt CÒN CONG HƠN)
+    from psr_core import dm_delay_s
+    shifts = np.rint(dm_delay_s(dm_best, f_g, f_ref_mhz=f_g.max()) / tsamp).astype(int)
+    dyn_dd = np.zeros_like(dyn_z)
+    ntt = dyn_z.shape[1]
+    for i, sh in enumerate(shifts):
+        dyn_dd[i, : ntt - sh] = dyn_z[i, sh:]
+    pp.plot_waterfall(dyn_dd, f_g, tsamp, ax=ax[1],
+                      title=f"(b) ĐÃ khử tán sắc DM = {dm_best:.2f} pc cm$^{{-3}}$ "
+                            f"— các vệt thẳng đứng là xung")
+    fig.tight_layout()
+    f1 = os.path.join(out_dir, "fig1_overview.png")
+    fig.savefig(f1); plt.close(fig)
+
+    # ================= HÌNH 2: 4 panel phát hiện
+    fig, ax = plt.subplots(2, 2, figsize=(11.5, 7.6))
+    t_all = np.arange(len(s_dd)) * tsamp
+    pp.plot_timeseries(t_all, (s_dd - np.median(s_dd)),
+                       peaks=pulses_ok, ax=ax[0, 0],
+                       ylabel="công suất dư (a.u., bandpass đã chuẩn hoá)",
+                       title="(a) Chuỗi thời gian sau khử tán sắc")
+    pp.plot_dm_curve(dm_grid, snr_dm, dm_meas=dm_best, dm_true=dm_ref,
+                     ax=ax[0, 1], title="(b) Quét DM — lọc khớp boxcar đa độ rộng")
+    prof_show = s_dd - np.median(s_dd)
+    met = {"width_ms": pulses_ok[0]["width_ms"] if pulses_ok else None}
+    pp.plot_pulse_profile(t_all * 1e3, prof_show, pulses_ok[:3], met, ax=ax[1, 0],
+                          title="(c) Vùng xung (đã khử tán sắc)")
+    if pulses_ok and pulses_ok[0].get("dm_sub") is not None:
+        r = subband_dm_single(dyn_z, f_g, tsamp, pulses_ok[0]["t_s"],
+                              window_s=0.05, nsub=8, dm_guess=dm_best,
+                              width_samples=max(2, pulses_ok[0]["width_samples"]))
+        lags_rel = (r["lags_s"] - r["lags_s"][-1]) * 1e3    # so với dải cao nhất
+        pp.plot_subband_lags(r["freqs_mhz"], lags_rel,
+                             r["dm"], r["dm_err"],
+                             ax=ax[1, 1],
+                             title=f"(d) Trễ dải con của xung 1 "
+                                   f"(t = {pulses_ok[0]['t_s']*1e3:.1f} ms)")
+    else:
+        ax[1, 1].text(0.5, 0.5, "không đủ dữ liệu", ha="center",
+                      transform=ax[1, 1].transAxes)
+    fig.suptitle(f"Phát hiện pulsar trên dữ liệu THẬT — {h['source']} "
+                 f"(GREENBURST/GBT)", fontsize=11.5)
+    fig.tight_layout()
+    f2 = os.path.join(out_dir, "fig2_detection.png")
+    fig.savefig(f2); plt.close(fig)
+
+    m["files"] = [os.path.basename(f1), os.path.basename(f2)]
+    with open(os.path.join(out_dir, "detect_metrics.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(_jsonify(m), fh, ensure_ascii=False, indent=2)
+
+    # ---------------- báo cáo chữ
+    rep = []
+    rep.append("BÁO CÁO PHÁT HIỆN PULSAR — DỮ LIỆU THẬT")
+    rep.append(f"File: {path}")
+    rep.append(f"Nguồn: {h['source']} | {h['nchans']} kênh | "
+               f"{freqs.min():.1f}–{freqs.max():.1f} MHz | {h['t_s']:.2f} s | "
+               f"tsamp {tsamp*1e6:.0f} µs")
+    rep.append(f"Kênh giữ/cắt: {good.sum()}/{(~good).sum()} | "
+               f"mẫu zero-DM cắt: {bad_t.sum()} ({100*bad_t.mean():.1f}%)")
+    rep.append(f"DM (quét): {dm_best:.2f} | DM (dải con): "
+               f"{m['stage'].get('dm_subband_mean', float('nan')):.2f} ± "
+               f"{m['stage'].get('dm_subband_std', float('nan')):.2f}"
+               + (f" | tham chiếu: {dm_ref}" if dm_ref else ""))
+    rep.append(f"Số xung phát hiện: {len(pulses)} | nhất quán DM: {len(pulses_ok)} | "
+               f"loại RFI hẹp băng: {len(rejected)}")
+    for i, p in enumerate(pulses_ok):
+        rep.append(f"  xung {i+1}: t = {p['t_s']*1e3:.1f} ms, SNR = {p['snr']:.1f}, "
+                   f"bề rộng = {p['width_ms']:.1f} ms, "
+                   f"DM dải con = {p.get('dm_sub')}")
+    rep.append("Kiểm chứng đầu ra:")
+    for c in checks:
+        rep.append(f"  [{'OK' if c['ok'] else 'FAIL'}] {c['name']}: {c['detail']}")
+    report = "\n".join(rep)
+    with open(os.path.join(out_dir, "detect_report.txt"), "w",
+              encoding="utf-8") as fh:
+        fh.write(report + "\n")
+    print("\n" + report)
+    print(f"\n→ THƯ MỤC KẾT QUẢ: {out_dir}")
+    print(f"   fig1_overview.png, fig2_detection.png, "
+          f"detect_metrics.json, detect_report.txt")
+    return m
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", default=os.path.join(DATA, "B0329+54.fil"))
+    ap.add_argument("--dm-ref", type=float, default=26.7641)
+    ap.add_argument("--p", type=float, default=0.714519699557)
+    ap.add_argument("--dm-max", type=float, default=60.0)
+    ap.add_argument("--dm-step", type=float, default=0.25)
+    ap.add_argument("--thresh", type=float, default=8.0)
+    a = ap.parse_args()
+    ensure_utf8_stdout()
+    detect(a.file, dm_ref=a.dm_ref, p_ref=a.p, dm_max=a.dm_max,
+           dm_step=a.dm_step, pulse_thresh=a.thresh)

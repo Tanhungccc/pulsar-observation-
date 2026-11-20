@@ -1,0 +1,34 @@
+# ---- Dữ liệu KHÔNG đưa lên git (dung lượng lớn, tải lại theo docs/06 §9–10) ----
+data/
+results/
+*.fil
+*.fits
+*.sigmf-data
+*.sigmf-meta
+*.cu8
+*.cs8
+*.cs16
+*.ci16
+*.cf32
+*.npy
+*.wav
+
+# ---- Sản phẩm build ----
+PulsarObs.exe
+build/
+dist/
+*.spec
+build_log.txt
+selfcheck_report.txt
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- Hệ điều hành / IDE ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

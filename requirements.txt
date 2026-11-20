@@ -1,0 +1,11 @@
+# Thư viện cần cho ứng dụng Pulsar Observation
+# Cài:  python -m pip install -r requirements.txt
+
+numpy>=1.24          # bắt buộc — toàn bộ DSP
+matplotlib>=3.7      # bắt buộc — biểu đồ
+astropy>=5.3         # khuyến nghị — đọc PSRFITS + hiệu chỉnh barycentric
+                     #   (thiếu vẫn chạy .fil/IQ, chỉ mất PSRFITS + barycentric)
+
+# ---- tuỳ chọn: chỉ cần khi dùng đúng chức năng tương ứng ----
+pyrtlsdr>=0.2.9      # ghi dữ liệu từ RTL-SDR thật
+pyinstaller>=6.0     # đóng gói EXE (build_exe.bat)
