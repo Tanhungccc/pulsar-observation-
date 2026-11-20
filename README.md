@@ -8,7 +8,7 @@ chạy được + đã kiểm chứng**.
 ```
 pulsar observation/
 ├── PulsarObs.exe                   ★ GIAO DIỆN một-click (tải từ Releases, không nằm trong repo)
-├── build_exe.bat                   đóng gói lại EXE sau khi sửa code
+├── build_exe.bat                   (tuỳ chọn) chỉ để TỰ BUILD lại EXE
 ├── README.md                       ← file này
 ├── TNU SUMMER SCHOOL 2026...pdf    báo cáo thực nghiệm 2.4 m @423 MHz (đối chiếu: docs/02 §4.3)
 ├── docs/
@@ -63,7 +63,9 @@ Double-click để mở. Repo **không chứa dữ liệu quan sát** — tải 
 5 tab: **Ghi tự động** · **Phát hiện** · **Mục tiêu** · **Phần cứng** · **Kiểm chứng**.
 Kiểm tra bản đóng gói: `PulsarObs.exe --selfcheck` → ghi `selfcheck_report.txt`.
 
-Sửa code xong muốn đóng gói lại: chạy `build_exe.bat` (~2–3 phút, ra `PulsarObs.exe`).
+**Người dùng chỉ cần `PulsarObs.exe`** — không cần file `.bat`.
+`build_exe.bat` chỉ dành cho người sửa code: chạy nó để đóng gói lại
+(~2–3 phút, ra `PulsarObs.exe`).
 
 ## 1b. Chạy bằng dòng lệnh
 
