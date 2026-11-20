@@ -32,3 +32,7 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# ---- log build / tệp tạm khi đóng gói ----
+build_log.txt
+*.spec

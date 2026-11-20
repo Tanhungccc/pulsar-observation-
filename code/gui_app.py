@@ -56,35 +56,123 @@ def asset_path(name: str) -> str | None:
     return None
 
 
-def apply_icon(root) -> str:
-    """Gắn icon cho cửa sổ + taskbar Windows. Trả về mô tả để selfcheck ghi lại."""
-    info = []
-    # Windows: tách tiến trình khỏi python.exe để taskbar dùng icon riêng
+def _win32_set_icons(root, ico: str) -> str:
+    """Gắn icon TRỰC TIẾP qua Win32: WM_SETICON + icon của class.
+
+    Vì sao cần: Tk trên Windows có thể tạo lại HWND khi cửa sổ hiện ra, làm mất
+    icon đã đặt bằng wm iconbitmap → taskbar hiện icon mặc định của Tk (lông vũ).
+    Đặt cả icon CLASS thì cửa sổ tạo lại vẫn thừa hưởng.
+
+    LƯU Ý: BẮT BUỘC khai báo argtypes — nếu không, handle 64-bit bị cắt còn
+    32-bit và WM_SETICON nhận handle rác (đã gặp: icon không hiện dù không lỗi).
+    """
     try:
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "PulsarObs.RTP37")
-        info.append("AppUserModelID=ok")
+        import ctypes.wintypes as wt
+        u = ctypes.windll.user32
+        u.LoadImageW.argtypes = [wt.HINSTANCE, wt.LPCWSTR, wt.UINT,
+                                 ctypes.c_int, ctypes.c_int, wt.UINT]
+        u.LoadImageW.restype = wt.HANDLE
+        u.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        u.SendMessageW.restype = wt.LPARAM
+        u.SetClassLongPtrW.argtypes = [wt.HWND, ctypes.c_int, ctypes.c_void_p]
+        u.SetClassLongPtrW.restype = ctypes.c_void_p
+        u.GetParent.argtypes = [wt.HWND]
+        u.GetParent.restype = wt.HWND
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
+        big = u.LoadImageW(None, ico, IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
+        small = u.LoadImageW(None, ico, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        if not big and not small:
+            return "LoadImage lỗi"
+        root.update_idletasks()
+        h = int(root.winfo_id())
+        targets = [h]
+        for _ in range(4):                    # HWND thật nằm ở cấp cha
+            p = u.GetParent(targets[-1])
+            if not p:
+                break
+            targets.append(p)
+        for hw in targets:
+            if big:
+                u.SendMessageW(hw, 0x0080, 1, big)     # WM_SETICON, ICON_BIG
+                u.SetClassLongPtrW(hw, -14, big)       # GCLP_HICON
+            if small:
+                u.SendMessageW(hw, 0x0080, 0, small)   # WM_SETICON, ICON_SMALL
+                u.SetClassLongPtrW(hw, -34, small)     # GCLP_HICONSM
+        return f"win32=ok ({len(targets)} hwnd)"
+    except Exception as e:
+        return f"win32 lỗi: {e!r}"
+
+
+def _icon_is_set(root) -> bool:
+    """True nếu cửa sổ THẬT SỰ có icon riêng (WM_GETICON khác 0).
+
+    Đây là kiểm tra bắt đúng lỗi "taskbar hiện icon mặc định của Tk" — lỗi này
+    từng xảy ra dù mọi lệnh gọi không hề báo lỗi.
+    """
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        u = ctypes.windll.user32
+        u.SendMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        u.SendMessageW.restype = wt.LPARAM
+        h = int(root.winfo_id())
+        return bool(u.SendMessageW(h, 0x007F, 1, 0))   # WM_GETICON, ICON_BIG
     except Exception:
-        pass
+        return False
+
+
+def apply_icon(root) -> str:
+    """Gắn icon cho cửa sổ + title bar + taskbar Windows."""
+    info = []
     ico = asset_path("icon.ico")
+    png = asset_path("icon.png")
     if ico:
         try:
             root.iconbitmap(default=ico)
-            info.append(f"iconbitmap={os.path.basename(ico)}")
+            info.append("iconbitmap=ok")
         except Exception as e:
             info.append(f"iconbitmap lỗi: {e!r}")
-    png = asset_path("icon.png")
     if png:
         try:
             from tkinter import PhotoImage
             img = PhotoImage(file=png)
             root.iconphoto(True, img)
             root._icon_ref = img          # giữ tham chiếu, nếu không sẽ mất
-            info.append(f"iconphoto={os.path.basename(png)}")
+            info.append("iconphoto=ok")
         except Exception as e:
             info.append(f"iconphoto lỗi: {e!r}")
+    if ico:
+        info.append(_win32_set_icons(root, ico))
+        # gắn lại sau khi cửa sổ hiện ra (Tk có thể tạo lại HWND lúc map)
+        try:
+            root.after(400, lambda: _win32_set_icons(root, ico))
+            root.bind("<Map>", lambda _e: _win32_set_icons(root, ico))
+        except Exception:
+            pass
     return "; ".join(info) if info else "không có icon"
+
+
+ROOT_DIR = APP_DIR if FROZEN else os.path.dirname(APP_DIR)
+CODE_DIR = APP_DIR
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+RESULTS_DIR = os.path.join(ROOT_DIR, "results")
+
+sys.path.insert(0, CODE_DIR)
+
+
+def asset_path(name: str) -> str | None:
+    """Tìm file trong assets/ — chạy từ mã nguồn hoặc từ EXE đã đóng gói."""
+    cands = [os.path.join(APP_DIR, "assets", name),
+             os.path.join(ROOT_DIR, "assets", name)]
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        cands.insert(0, os.path.join(base, "assets", name))
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    return None
+
 
 # ép module dùng đúng thư mục data/results (không phụ thuộc nơi khởi chạy)
 import psr_detect            # noqa: E402
@@ -796,6 +884,17 @@ def selfcheck() -> int:
 
     ico = asset_path("icon.ico")
     chk("icon app tồn tại (assets/icon.ico)", bool(ico), ico or "THIẾU")
+    try:
+        import tkinter as _tk
+        _r = _tk.Tk()
+        _r.withdraw()
+        _info = apply_icon(_r)
+        _r.update()
+        _ok_icon = _icon_is_set(_r)
+        _r.destroy()
+        chk("icon gắn được vào cửa sổ (WM_GETICON)", _ok_icon, _info)
+    except Exception as e:
+        chk("icon gắn được vào cửa sổ (WM_GETICON)", False, repr(e))
 
     tmp = tempfile.mkdtemp(prefix="psrself_")
     try:
@@ -890,10 +989,6 @@ def main():
     if "--selfcheck" in sys.argv:
         sys.exit(selfcheck())
     root = tk.Tk()
-    try:
-        root.iconbitmap(default="")          # tránh lỗi icon khi đóng gói
-    except Exception:
-        pass
     App(root)
     root.mainloop()
 
