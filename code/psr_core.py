@@ -489,6 +489,21 @@ def find_pulses(series, tsamp_s: float, threshold: float = 8.0,
     for cd in cand:
         if all(abs(cd["t_s"] - k["t_s"]) > min_sep for k in kept):
             kept.append(cd)
+
+    # TINH CHỈNH thời điểm về ĐỈNH THẬT trong ±nửa bề rộng: tâm cửa sổ boxcar có
+    # thể lệch khỏi đỉnh với xung bất đối xứng (đã gặp: lệch 1 mẫu → marker
+    # và đường nét đứt không nằm trên đỉnh, gây hiểu nhầm "xung ở chỗ khác").
+    for cd in kept:
+        w = max(int(cd["width_samples"]), 1)
+        i0 = int(round(cd["t_s"] / tsamp_s))
+        half = max(1, w // 2)
+        lo, hi = max(0, i0 - half), min(len(d), i0 + half + 1)
+        seg = d[lo:hi]
+        # lấy ĐÚNG mẫu cao nhất của chuỗi đã khử tán sắc (chuỗi này đã cộng
+        # dồn qua hàng trăm kênh nên đủ trơn) → marker luôn nằm trên đỉnh VẼ RA
+        i_ap = lo + int(np.argmax(seg)) if seg.size else i0
+        cd["t_boxcar_s"] = cd["t_s"]
+        cd["t_s"] = float(i_ap * tsamp_s)
     return kept
 
 def mask_bursty_channels(dyn, max_ratio: float = 3.0, pct: float = 99.9):

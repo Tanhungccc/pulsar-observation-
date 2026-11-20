@@ -488,6 +488,14 @@ def s5_crosscheck(fx, fast=False):
         chk("IQ THẬT: phát hiện xung SNR ≥ 20",
             (m["stage"].get("dm_scan_peak_snr") or 0) >= 20,
             f"SNR {m['stage'].get('dm_scan_peak_snr')}")
+        # BỐ CỤC HÌNH: chú giải/chú thích không được đè dữ liệu, không tràn khung
+        figi = m.get("figure_check")
+        chk("bố cục hình: không chú giải/chú thích đè dữ liệu",
+            figi == [], f"figure_check = {figi}")
+        f2p = os.path.join(m["out_dir"], "fig2_detection.png")
+        ok_size = (os.path.exists(f2p) and os.path.getsize(f2p) > 60_000)
+        chk("hình fig2_detection.png xuất ra hợp lệ", ok_size,
+            f"{os.path.getsize(f2p)//1024} KB" if os.path.exists(f2p) else "THIẾU")
     else:
         chk("có file IQ thật để đối chiếu", False, iq)
 

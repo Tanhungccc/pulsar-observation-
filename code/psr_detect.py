@@ -66,8 +66,38 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RESULTS = os.path.join(os.path.dirname(HERE), "results")
 DATA = os.path.join(os.path.dirname(HERE), "data")
 
-# Catalogue tham chiếu B0329+54 (ATNF) — chỉ dùng để KIỂM CHỨNG, không để "tìm"
-REF = {"B0329+54": {"dm": 26.7641, "p_s": 0.714519699557, "w50_ms": 12.0}}
+# Mốc tham chiếu lấy từ DANH MỤC (psr_targets.PULSARS) — chỉ để KIỂM CHỨNG,
+# không dùng để "tìm". Không có mốc thì KHÔNG vẽ đường tham chiếu (tránh gán
+# DM của pulsar khác lên dữ liệu, như từng xảy ra: Cua bị so với 26.76).
+_ALIAS = {"crab": "B0531+21", "cua": "B0531+21", "vela": "B0833-45"}
+
+
+def ref_from_catalogue(path: str = "", source: str = "") -> dict | None:
+    """Tra DM/P của mục tiêu từ tên file hoặc tên nguồn trong header.
+
+    Trả None nếu không nhận ra — KHÔNG đoán bừa.
+    """
+    import re
+    try:
+        from psr_targets import PULSARS
+    except Exception:
+        PULSARS = []
+    blob = f"{path} {source}".upper()
+    # So khớp theo PHẦN GỐC của tên (B0531, J0437, B0329...): người dùng hay
+    # đặt tên file kiểu "injected_B0531.fil" hoặc "B0329+54.fil".
+    for t in PULSARS:
+        core = t["name"].upper().split("+")[0].split("-")[0]
+        if re.search(rf"(?<![A-Z0-9]){re.escape(core)}(?![0-9])", blob):
+            return dict(dm=t["dm"], p_s=t["P"], w50_ms=t.get("w408"),
+                        name=t["name"], from_="tên file/nguồn")
+    low = blob.lower()
+    for word, name in _ALIAS.items():
+        if word in low:
+            for t in PULSARS:
+                if t["name"] == name:
+                    return dict(dm=t["dm"], p_s=t["P"], w50_ms=t.get("w408"),
+                                name=t["name"], from_=f'từ khoá "{word}"')
+    return None
 
 
 def _jsonify(o):
@@ -118,6 +148,13 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     out_dir = os.path.join(RESULTS, stem)
     os.makedirs(out_dir, exist_ok=True)
     m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {}}
+    if dm_ref is None or p_ref is None:
+        # chỉ dùng mốc khi NHẬN RA mục tiêu từ tên file / header
+        _r = ref_from_catalogue(path, "")
+        if _r:
+            dm_ref = dm_ref if dm_ref is not None else _r["dm"]
+            p_ref = p_ref if p_ref is not None else _r["p_s"]
+            m["reference"] = _r
 
     # ---------------- V1: đọc + kiểm chứng đầu vào (tự nhận .fil/.fits)
     try:
@@ -142,6 +179,16 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                                         "tstart", "t_s", "ntime")}
     m["input"]["band_mhz"] = [float(freqs.min()), float(freqs.max())]
     m["input"]["validation"] = h["validation"]
+    # mốc tham chiếu: ưu tiên người dùng nhập; nếu không, tra theo header
+    # (tên nguồn) rồi tới tên file. Không nhận ra → KHÔNG có mốc nào.
+    if dm_ref is None or p_ref is None:
+        _r2 = ref_from_catalogue(path, h.get("source") or "")
+        if _r2:
+            dm_ref = dm_ref if dm_ref is not None else _r2["dm"]
+            p_ref = p_ref if p_ref is not None else _r2.get("p_s")
+            m["reference"] = _r2
+            print(f"→ mốc tham chiếu: {_r2['name']} DM = {_r2['dm']} "
+                  f"({_r2['from_']}) — CHỈ dùng để kiểm chứng")
     print(f"→ V1 đọc {path}: {h['nchans']} kênh, {h['ntime']} mẫu, "
           f"{h['t_s']:.2f} s, {freqs.min():.0f}–{freqs.max():.0f} MHz")
     for w in h.get("read_warnings", []) or h["validation"]["warnings"]:
@@ -193,7 +240,12 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # ---------------- A8: quét DM
     # Nếu biết P catalogue và đủ chu kỳ → quét DM bằng FOLD (nhạy gấp nhiều
     # lần: cộng dồn mọi xung). Nếu không (dữ liệu xung đơn) → lọc khớp boxcar.
-    use_fold_scan = p_ref is not None and h["t_s"] > 5 * p_ref
+    # Chọn chế độ quét DM theo SỐ CHU KỲ trong dữ liệu:
+    #   ≥10 chu kỳ → fold (tích luỹ, nhạy với pulsar yếu/đều);
+    #   < 10 chu kỳ → boxcar (nhạy với xung đơn/giant pulse).
+    # 0.2 s dữ liệu Cua = 6 chu kỳ → boxcar (đúng: một giant pulse).
+    # 4.2 s dữ liệu tiêm = 125 chu kỳ → fold (đúng: chuỗi xung đều).
+    use_fold_scan = (p_ref is not None and h["t_s"] >= 10.0 * p_ref)
     dm_grid = np.arange(0.0, dm_max + dm_step, dm_step)
     widths = (2, 4, 8, 16, 32, 64)
     snr_dm = np.zeros(len(dm_grid))
@@ -215,8 +267,13 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     snr_dm0 = float(snr_dm[0]) if abs(dm_grid[0]) < 1e-9 else None
     dm_ratio = (float(snr_dm[k]) / max(snr_dm0, 1e-9)
                 if snr_dm0 is not None else float("nan"))
-    zero_dm_dominated = (snr_dm0 is not None and dm_best > 0
-                         and dm_ratio < 1.15 and snr_dm0 > 8.0)
+    # Veto 1: RFI băng rộng (SNR cao nhất ở DM=0 và không tăng khi khử tán sắc).
+    # Veto 2: đỉnh rơi đúng DM≈0 → tín hiệu KHÔNG tán sắc ⇒ RFI nội địa,
+    # không phải pulsar (pulsar thật luôn có DM > 0 đáng kể so với bước quét).
+    dm_zero_peak = (dm_best <= dm_step / 2.0 and snr_dm[k] > 8.0)
+    zero_dm_dominated = ((snr_dm0 is not None and dm_best > 0
+                          and dm_ratio < 1.15 and snr_dm0 > 8.0)
+                         or dm_zero_peak)
     m["stage"]["snr_zero_dm"] = None if snr_dm0 is None else round(snr_dm0, 2)
     m["stage"]["dm_ratio_vs_zero"] = None if np.isnan(dm_ratio) else round(dm_ratio, 2)
     m["stage"]["zero_dm_dominated"] = bool(zero_dm_dominated)
@@ -347,7 +404,11 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                                ok=err < tol,
                                detail=f"đo {dme:.2f} vs {dm_ref:.3f} "
                                       f"(lệch {err:.2f}, ngưỡng {tol:.1f})"))
-    if p_ref and train:
+    if p_ref and len(pulses_ok) < 2:
+        checks.append(dict(name="chuỗi xung cùng pha (mod P)", ok=True,
+                           detail="KHÔNG ÁP DỤNG: chỉ 1 xung (giant pulse đơn lẻ) "
+                                  "— nhịp đều đã kiểm qua fold tại P"))
+    elif p_ref and train:
         phs = [p["phase_ms"] for p in train]
         checks.append(dict(name="chuỗi xung cùng pha (mod P)", ok=len(train) >= 2,
                            detail=f"{len(train)} xung tại pha {np.mean(phs):.1f} ± "
@@ -373,11 +434,14 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         det = (f"{len(pulses_ok)} xung nhất quán DM"
                + (f", khe thời gian {[round(g*1e3) for g in gaps]} ms"
                   if gaps else ""))
-        # Giant pulse: 1 xung là ĐÚNG (dữ liệu 0.2 s không có chu kỳ nào).
-        # Yêu cầu ≥ 2 chỉ khi dữ liệu dài ≥ 2.5 chu kỳ.
-        min_p = 2 if (p_ref and h["t_s"] > 2.5 * p_ref) else 1
-        checks.append(dict(name="xung thật (nhất quán DM)",
-                           ok=len(pulses_ok) >= min_p, detail=det))
+        # Giant pulse: 1 xung là ĐÚNG. Dữ liệu dài ≥ 2.5 chu kỳ mà chỉ có 1
+        # xung thì KHÔNG coi là FAIL (có thể là giant pulse đơn lẻ); nhịp đều
+        # được kiểm tra riêng qua fold tại P và qua check "chuỗi cùng pha".
+        n_p = len(pulses_ok)
+        if p_ref and h["t_s"] > 2.5 * p_ref and n_p == 1:
+            det += (f"; dữ liệu dài {h['t_s']/p_ref:.1f} chu kỳ nhưng chỉ 1 xung"
+                    f" — phù hợp giant pulse đơn lẻ")
+        checks.append(dict(name="xung thật (nhất quán DM)", ok=n_p >= 1, detail=det))
     # đối chứng nền: xáo TRỘN TỪNG KÊNH (phá liên kết liên tần số → phá vệt
     # tán sắc, giữ nguyên thống kê mỗi kênh). Không được cho SNR cao.
     rng = np.random.default_rng(0)
@@ -390,9 +454,12 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                        ok=z_n < 12.0,
                        detail=f"SNR nền {z_n:.1f} (phải < 12; xung thật "
                               f"{snr_dm[k]:.0f})"))
+    fold_info = None
     if p_ref is not None and h["t_s"] > 5 * p_ref:
-        prof, _ = fold(s_dd, tsamp, p_ref, nbins=256)
-        sfp = profile_snr(prof)[0]
+        prof_f, _ = fold(s_dd, tsamp, p_ref, nbins=256)
+        sfp = profile_snr(prof_f)[0]
+        fold_info = dict(prof=prof_f, snr=sfp, p_s=p_ref, nbins=256,
+                         cycles=h["t_s"] / p_ref)
         checks.append(dict(name="fold tại P catalogue", ok=sfp > 8.0,
                            detail=f"SNR fold = {sfp:.1f}"))
     else:
@@ -419,38 +486,79 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # ================= HÌNH 1: waterfall thô + đã khử tán sắc
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(2, 1, figsize=(9.2, 7.2))
-    pp.plot_waterfall(dyn_z, f_g, tsamp, ax=ax[0],
-                      title=f"(a) Waterfall CHƯA khử tán sắc — {h['source']}, "
-                            f"{freqs.min():.0f}–{freqs.max():.0f} MHz, "
-                            f"tsamp = {tsamp*1e6:.0f} µs")
-    # dựng lại waterfall đã khử tán sắc để so sánh (DỊCH SỚM từng kênh:
-    # output[j] = input[j+shift] — chú ý dấu, dịch muộn sẽ làm vệt CÒN CONG HƠN)
+    _src1 = (h.get("source") or "").strip()
+    if _src1.lower() in ("", "temp", "unknown", "none", "test", "empty"):
+        _src1 = os.path.splitext(os.path.basename(path))[0]
+    # dựng lại waterfall đã khử tán sắc (DỊCH SỚM từng kênh:
+    # output[j] = input[j+shift] — dịch muộn sẽ làm vệt CÒN CONG HƠN)
     from psr_core import dm_delay_s
     shifts = np.rint(dm_delay_s(dm_best, f_g, f_ref_mhz=f_g.max()) / tsamp).astype(int)
-    dyn_dd = np.zeros_like(dyn_z)
     ntt = dyn_z.shape[1]
+    # CHỈ giữ vùng thời gian HỢP LỆ cho mọi kênh: nếu để nguyên, phần đuôi
+    # (không đủ mẫu để dịch) toàn số 0 → -120 dB → mảng đen giả tạo trên hình.
+    n_valid = max(1, ntt - int(np.max(shifts)))
+    dyn_dd = np.zeros((dyn_z.shape[0], n_valid))
     for i, sh in enumerate(shifts):
-        dyn_dd[i, : ntt - sh] = dyn_z[i, sh:]
+        dyn_dd[i, :] = dyn_z[i, sh: sh + n_valid]
+    pp.plot_waterfall(dyn_z[:, :n_valid], f_g, tsamp, ax=ax[0],
+                      title=f"(a) Waterfall CHƯA khử tán sắc — {_src1}, "
+                            f"{f_g.min():.0f}–{f_g.max():.0f} MHz, "
+                            f"tsamp = {tsamp*1e6:.0f} µs")
     pp.plot_waterfall(dyn_dd, f_g, tsamp, ax=ax[1],
                       title=f"(b) ĐÃ khử tán sắc DM = {dm_best:.2f} pc cm$^{{-3}}$ "
                             f"— các vệt thẳng đứng là xung")
     fig.tight_layout()
+    pp.finalize(fig)
     f1 = os.path.join(out_dir, "fig1_overview.png")
     fig.savefig(f1); plt.close(fig)
 
     # ================= HÌNH 2: 4 panel phát hiện
-    fig, ax = plt.subplots(2, 2, figsize=(11.5, 7.6))
+    fig, ax = plt.subplots(2, 2, figsize=(12.0, 8.2))
     t_all = np.arange(len(s_dd)) * tsamp
     pp.plot_timeseries(t_all, (s_dd - np.median(s_dd)),
                        peaks=pulses_ok, ax=ax[0, 0],
-                       ylabel="công suất dư (a.u., bandpass đã chuẩn hoá)",
+                       ylabel="công suất dư (đ.v. chuẩn hoá)",
                        title="(a) Chuỗi thời gian sau khử tán sắc")
-    pp.plot_dm_curve(dm_grid, snr_dm, dm_meas=dm_best, dm_true=dm_ref,
-                     ax=ax[0, 1], title="(b) Quét DM — lọc khớp boxcar đa độ rộng")
+    _scan_title = ("(b) Quét DM — fold tại P tham chiếu" if use_fold_scan
+                   else "(b) Quét DM — lọc khớp boxcar đa độ rộng")
+    _detected = float(snr_dm[k]) >= pulse_thresh
+    if not _detected:
+        _scan_title += f" — KHÔNG phát hiện (đỉnh {snr_dm[k]:.1f}σ < {pulse_thresh:.0f}σ)"
+    pp.plot_dm_curve(dm_grid, snr_dm,
+                     dm_meas=dm_best if _detected else None, dm_true=dm_ref,
+                     ax=ax[0, 1], title=_scan_title, threshold=pulse_thresh)
     prof_show = s_dd - np.median(s_dd)
     met = {"width_ms": pulses_ok[0]["width_ms"] if pulses_ok else None}
-    pp.plot_pulse_profile(t_all * 1e3, prof_show, pulses_ok[:3], met, ax=ax[1, 0],
-                          title="(c) Vùng xung (đã khử tán sắc)")
+    # panel (c): CẬN CẢNH quanh xung (trước đây vẽ cả chuỗi nhưng lại ghi
+    # "vùng xung" — sai mô tả và chú thích tràn khung)
+    if pulses_ok:
+        p0 = pulses_ok[0]
+        w_ms = p0.get("width_ms") or 1.0
+        t0_ms = p0["t_s"] * 1e3
+        # cửa sổ cận cảnh: đủ rộng để thấy chân xung, đủ hẹp để KHÔNG lẫn
+        # xung bên cạnh (trước đây W50 = 8 ms → ±82 ms, lẫn cả 3 xung)
+        hw = float(min(max(3.5 * w_ms, 3.0), 30.0))
+        t_ms = t_all * 1e3
+        sel = (t_ms >= t0_ms - hw) & (t_ms <= t0_ms + hw)
+        if sel.sum() < 8:                      # dự phòng: cửa sổ quá hẹp
+            hw = max(hw, 3.0 * w_ms + 5.0)
+            sel = (t_ms >= t0_ms - hw) & (t_ms <= t0_ms + hw)
+        pk_in = [p for p in pulses_ok if abs(p["t_s"] * 1e3 - t0_ms) <= hw]
+        pp.plot_pulse_profile(t_ms[sel], prof_show[sel], pk_in[:3], met,
+                              ax=ax[1, 0], xlim_ms=(t0_ms - hw, t0_ms + hw),
+                              title=f"(c) Cận cảnh xung (±{hw:.0f} ms)")
+    elif fold_info is not None and fold_info["snr"] > 8.0:
+        pp.plot_fold_profile(fold_info, ax=ax[1, 0],
+                             title="(c) Hồ sơ fold tại P tham chiếu")
+    else:
+        _rej = [p for p in pulses if p.get("dm_consistent") is False]
+        if _rej:
+            _ttl = f"(c) SNR theo thời gian — {len(_rej)} ứng viên bị loại (DM lệch)"
+        else:
+            _ttl = "(c) SNR theo thời gian — không mẫu nào vượt ngưỡng"
+        _note = ""
+        pp.plot_boxcar_snr(s_dd, tsamp, threshold=pulse_thresh, ax=ax[1, 0],
+                           candidates=_rej or None, note=_note, title=_ttl)
     if pulses_ok and pulses_ok[0].get("dm_sub") is not None:
         r = subband_dm_single(dyn_z, f_g, tsamp, pulses_ok[0]["t_s"],
                               window_s=0.05, nsub=8, dm_guess=dm_best,
@@ -461,12 +569,33 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                              ax=ax[1, 1],
                              title=f"(d) Trễ dải con của xung 1 "
                                    f"(t = {pulses_ok[0]['t_s']*1e3:.1f} ms)")
+    elif fold_info is not None:
+        pp.plot_fold_snr_vs_dm(dm_grid, snr_dm, fold_info, ax=ax[1, 1],
+                               threshold=pulse_thresh,
+                               title="(d) SNR fold theo DM (phóng quanh DM tốt nhất)")
     else:
-        ax[1, 1].text(0.5, 0.5, "không đủ dữ liệu", ha="center",
+        ax[1, 1].text(0.5, 0.5, "không tìm thấy xung riêng lẻ để đo trễ dải con",
+                      ha="center", va="center", fontsize=9, color="0.35",
                       transform=ax[1, 1].transAxes)
-    fig.suptitle(f"Phát hiện pulsar trên dữ liệu THẬT — {h['source']} "
-                 f"(GREENBURST/GBT)", fontsize=11.5)
+        ax[1, 1].set_xticks([]); ax[1, 1].set_yticks([])
+        ax[1, 1].set_title("(d) Trễ dải con — không áp dụng")
+    # tiêu đề chung: chỉ ghi nguồn + kính NẾU header có — không bịa tên kính
+    tel = (h.get("telescope") or h.get("instrument") or "").strip()
+    src = (h.get("source") or "").strip()
+    if src.lower() in ("", "temp", "unknown", "none", "test", "empty"):
+        src = os.path.splitext(os.path.basename(path))[0]
+    supt = f"Phát hiện pulsar trên dữ liệu THẬT — {src}" + (f" ({tel})" if tel else "")
+    fig.suptitle(supt, fontsize=11.5)
     fig.tight_layout()
+    # KIỂM TRA BỐ CỤC bằng hình học thật: chú giải đè dữ liệu / chữ tràn khung
+    fig_issues = pp.finalize(fig)
+    m["figure_check"] = fig_issues
+    if fig_issues:
+        print(f"   ⚠ bố cục hình: {len(fig_issues)} vấn đề")
+        for it in fig_issues:
+            print(f"      [{it['kind']}] {it['panel']}: {it['detail']}")
+    else:
+        print("   ✔ bố cục hình: chú giải/chú thích không đè dữ liệu, không tràn khung")
     f2 = os.path.join(out_dir, "fig2_detection.png")
     fig.savefig(f2); plt.close(fig)
 
@@ -511,8 +640,13 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", default=os.path.join(DATA, "B0329+54.fil"))
-    ap.add_argument("--dm-ref", type=float, default=26.7641)
-    ap.add_argument("--p", type=float, default=0.714519699557)
+    # Mặc định KHÔNG có mốc: mốc chỉ dùng khi người dùng đưa vào hoặc khi
+    # nhận ra mục tiêu từ tên file/header (tra psr_targets). Đặt mốc cứng
+    # của B0329+54 từng làm dữ liệu Cua bị so sai (26.76 vs 56.77).
+    ap.add_argument("--dm-ref", type=float, default=None,
+                    help="DM tham chiếu (pc cm^-3), chỉ để KIỂM CHỨNG")
+    ap.add_argument("--p", type=float, default=None,
+                    help="chu kỳ tham chiếu (s), chỉ để fold kiểm chứng")
     ap.add_argument("--dm-max", type=float, default=60.0)
     ap.add_argument("--dm-step", type=float, default=0.25)
     ap.add_argument("--thresh", type=float, default=8.0)
