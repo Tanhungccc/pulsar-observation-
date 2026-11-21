@@ -71,7 +71,7 @@ Mục tiêu của lần nâng cấp:
 | L3 | `psr_dm.py`, `psr_pulse.py`, `psr_period.py`, `psr_veto.py` (mới) | kế hoạch DM 2 tầng, dò xung đơn, dò chu kỳ, veto | ghi sản phẩm |
 | L4 | `psr_products.py` (mới) | report + hình + provenance + `export-pac` | DSP |
 | L5 | `pulsarobs.py` (mới) | CLI, in JSON | logic khoa học |
-| L6 | `gui_app.py`, `psr_i18n.py` | form → CLI → hiển thị; **đa ngôn ngữ** vi/en (`settings.json` hoặc `PSR_LANG`) | DSP |
+| L6 | GUI 3 tab: **1 Kế hoạch & Ghi** (bảng transit/SNR → điền phiên ghi, nút sang Tab 2 mang cả DM) · **2 Phát hiện** (+khung `ingest_guard`) · **3 Cài đặt & Công cụ** (hồ sơ, danh mục, nơi lưu, phần cứng, kiểm chứng). `gui_app.py`, `psr_i18n.py` | form → CLI → hiển thị; **đa ngôn ngữ** vi/en (`settings.json` hoặc `PSR_LANG`) | DSP |
 
 `psr_detect.py` giữ lại làm **wrapper tương thích** (API cũ `detect()` → gọi L3+L4),
 để test và GUI hiện tại không vỡ trong lúc chuyển đổi.
@@ -425,8 +425,8 @@ Thứ tự **không được đảo**: M2.5 là thước đo của M3.
 
 | Tham số | Giá trị | Ghi chú |
 |---|---|---|
-| `dm_max` | **1000** (`--dm-max 3000` khi cần) | Pulsar sáng đều có DM < 800 |
-| `dm_step` | thích ứng, sàn 0.1, `≈0.2·W50/Δt_per_dm` | Giảm ~2× số trial |
+| `dm_max` | **tự mở rộng** = max(100, 1,5×DM mục tiêu) | Vela (68) → 102; B1641−45 (479) → 718 |
+| `dm_step` | thích ứng; nếu dm_max/step > 1000 thì nới để ≤ ~1000 bước | B1641−45: 718/0,718 = 1001 bước |
 | Dải chu kỳ | **1.5 ms – 10 s** | Dưới 1.5 ms: chi phí FFT tăng 4× mà vô ích với 2.4 MHz |
 | Dò Ṗ | **Không** | Có cảnh báo "nghi hệ đôi" khi SNR fold thấp bất thường |
 | Phân cực | Stokes I | |

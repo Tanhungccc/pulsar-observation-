@@ -229,6 +229,40 @@ def main(fast=False):
     chk("xoá mục tiêu tự thêm khỏi danh sách",
         "ZZTEST_TARGET" not in list(app.rec_target.cget("values")))
 
+    # =============================================== D0c. CẤU TRÚC 3 TAB
+    print(chr(10) + "=== D0c. PHƯƠNG ÁN B: 3 tab ===")
+    tabs = [app.nb.tab(i, "text") for i in range(app.nb.index("end"))]
+    chk("GUI có đúng 3 tab", len(tabs) == 3, str(tabs))
+    chk("tab 1 = Kế hoạch & Ghi", "KẾ HOẠCH" in tabs[0].upper(), tabs[0])
+    chk("tab 2 = Phát hiện", "PHÁT HIỆN" in tabs[1].upper(), tabs[1])
+    chk("tab 3 = Cài đặt & Công cụ", "CÀI ĐẶT" in tabs[2].upper(), tabs[2])
+    subs = [w for w in app.tab_set.winfo_children()
+            if w.winfo_class() == "TNotebook"]
+    chk("tab 3 gom đủ 5 khu (hồ sơ, danh mục, nơi lưu, phần cứng, kiểm chứng)",
+        bool(subs) and subs[0].index("end") == 5,
+        str([subs[0].tab(i, "text").strip() for i in range(subs[0].index("end"))]) if subs else "—")
+
+    app.refresh_plan(); root.update()
+    rows = app.plan_tree.get_children()
+    chk("bảng kế hoạch có dữ liệu (từ hồ sơ + flux ATNF)", len(rows) >= 5,
+        f"{len(rows)} dòng")
+    picked = None
+    for iid in rows:
+        if "B1641" in str(app.plan_tree.item(iid)["values"][0]):
+            picked = iid
+            break
+    if picked:
+        app.plan_tree.selection_set(picked)
+        root.update()
+        chk("chọn dòng kế hoạch → điền mục tiêu + DM",
+            app.rec_target.get().startswith("B1641") and app.rec_dm.get().startswith("478"),
+            f"{app.rec_target.get()} · DM {app.rec_dm.get()}")
+        chk("dòng B1641-45 cho thấy dm_max sẽ quét 718",
+            "718" in str(app.plan_tree.item(picked)["values"][-1]),
+            str(app.plan_tree.item(picked)["values"][-1]))
+    chk("tab 2 có khung ingest_guard (10 mục)",
+        len(getattr(app, "guard_lbl", {})) == 10, str(len(getattr(app, "guard_lbl", {}))))
+
     # =============================================== D. TAB 1 — GHI TỰ ĐỘNG
     print("\n=== D. TAB 1: GHI TỰ ĐỘNG (mock) ===")
     secs = 8.0 if fast else 18.0
@@ -326,10 +360,16 @@ def main(fast=False):
                                   pump(root, app, 240), "busy=False")
     app.run_recorder_selftest(); pump(root, app, 180)
     chk("nút 'Tự kiểm tra trình ghi' chạy xong", True, "log đã cập nhật")
-    has_stress = any("Corpus dữ liệu XẤU" in str(w.cget("text"))
-                     for w in app.tab_chk.winfo_children()[0].winfo_children()
-                     if isinstance(w, ttk.Button))
-    chk("nút 'Corpus dữ liệu XẤU' có trên tab Kiểm chứng", has_stress)
+    def _all_buttons(widget, out=None):
+        out = out if out is not None else []
+        for ch in widget.winfo_children():
+            if ch.winfo_class() == "TButton":
+                out.append(ch)
+            _all_buttons(ch, out)
+        return out
+    has_stress = any("Corpus dữ liệu XẤU" in str(b.cget("text"))
+                     for b in _all_buttons(app.tab_set))
+    chk("nút 'Corpus dữ liệu XẤU' có trên tab Kiểm chứng (tab 3)", has_stress)
 
     # =============================================== G2. IQ THÔ
     print("\n=== G2. DỮ LIỆU IQ THÔ (chưa channelize) ===")

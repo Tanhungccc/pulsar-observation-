@@ -201,6 +201,27 @@ def test_ingest_guard():
           bool(m.get("input_sha256")) and m.get("schema_version") == 3,
           "sha=%s" % str(m.get("input_sha256"))[:10])
 
+def test_dm_max_auto():
+    """A8: dm_max tự mở rộng theo dm_ref (Vela 68, B1641-45 479)."""
+    import psr_detect, io as _io, contextlib as _ctx, tempfile as _tf
+    okall = True
+    detail = []
+    for ref, need in ((None, 100.0), (67.94, 101.9), (478.7, 718.0)):
+        _old = psr_detect.RESULTS
+        psr_detect.RESULTS = _tf.mkdtemp(prefix="dmmax_")
+        try:
+            with _ctx.redirect_stdout(_io.StringIO()):
+                m = psr_detect.detect("../data/stress/28.fil", dm_ref=ref)
+            got = float(m["stage"].get("dm_max") or 0)
+        finally:
+            psr_detect.RESULTS = _old
+        good = got >= need - 1.0
+        okall = okall and good
+        detail.append(f"ref={ref}→{got:.0f}")
+    check("dm_max tự mở rộng theo dm_ref (không quét thiếu Vela/B1641-45)",
+          okall, ", ".join(detail))
+
+
 def test_i18n():
     """L6: đa ngôn ngữ — dịch, fallback, lưu/đọc settings."""
     import psr_i18n as L
@@ -335,6 +356,7 @@ if __name__ == "__main__":
     test_subband_dm()
     test_constants()
     test_ingest_guard()
+    test_dm_max_auto()
     test_i18n()
     test_site_profile()
     test_targets()

@@ -259,7 +259,7 @@ def rebin_channels(dyn, rb: int, block: int = 512) -> np.ndarray:
 
 
 def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
-           dm_max: float = 60.0, dm_step: float = 0.25,
+           dm_max: float | None = None, dm_step: float = 0.25,
            pulse_thresh: float = 8.0, rebin: int = 8,
            nchan_iq: int = 256, navg_iq: int = 16,
            out_name: str | None = None) -> dict:
@@ -421,6 +421,24 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # 0.2 s dữ liệu Cua = 6 chu kỳ → boxcar (đúng: một giant pulse).
     # 4.2 s dữ liệu tiêm = 125 chu kỳ → fold (đúng: chuỗi xung đều).
     use_fold_scan = (p_ref is not None and h["t_s"] >= 10.0 * p_ref)
+    # dm_max TỰ MỞ RỘNG theo mốc tham chiếu: nếu để mặc định 60 thì Vela (DM 68)
+    # và B1641-45 (DM 479) sẽ bị quét thiếu — không bao giờ thấy đỉnh DM.
+    if dm_max is None:
+        dm_max = max(100.0, 1.5 * float(dm_ref or 0.0))
+    dm_max = float(dm_max)
+    if dm_ref is not None and dm_ref > dm_max:
+        print(f"→ ⚠ dm_max = {dm_max:.0f} < dm_ref = {dm_ref:.1f}: nới lên theo mốc")
+        dm_max = 1.5 * dm_ref
+    # dm_step TỰ NỚI khi dải DM rộng: B1641-45 (dm_max 718) ở bước 0,25 là 2.873
+    # bước — chậm. Giữ tổng số bước ≤ ~1000 để GUI không bị "đứng" lâu.
+    if dm_max > 200 and dm_max / dm_step > 1000:
+        new_step = round(dm_max / 1000.0, 3)
+        print(f"→ A8 tự nới bước DM: {dm_step} → {new_step} (dải {dm_max:.0f})")
+        dm_step = new_step
+    m["stage"]["dm_step"] = dm_step
+    m["stage"]["dm_max"] = dm_max
+    print(f"→ A8 dải DM: 0–{dm_max:.0f} (bước {dm_step})"
+          + (f" · mốc tham chiếu {dm_ref:.2f}" if dm_ref else ""))
     dm_grid = np.arange(0.0, dm_max + dm_step, dm_step)
     widths = (2, 4, 8, 16, 32, 64)
     snr_dm = np.zeros(len(dm_grid))
@@ -831,7 +849,8 @@ if __name__ == "__main__":
                     help="DM tham chiếu (pc cm^-3), chỉ để KIỂM CHỨNG")
     ap.add_argument("--p", type=float, default=None,
                     help="chu kỳ tham chiếu (s), chỉ để fold kiểm chứng")
-    ap.add_argument("--dm-max", type=float, default=60.0)
+    ap.add_argument("--dm-max", type=float, default=None,
+                    help="mặc định: max(100, 1.5×dm_ref)")
     ap.add_argument("--dm-step", type=float, default=0.25)
     ap.add_argument("--thresh", type=float, default=8.0)
     a = ap.parse_args()

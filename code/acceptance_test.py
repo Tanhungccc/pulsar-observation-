@@ -411,14 +411,18 @@ def s4_gui():
             root.update(); drain(); time.sleep(0.02)
         return not app.busy
 
-    chk("đủ 5 tab", len(app.nb.tabs()) == 5, app.nb.tabs() and "5 tab")
-    n_btn = 0
-    for tab in (app.tab_rec, app.tab_det, app.tab_tgt, app.tab_hw, app.tab_chk):
-        for w in tab.winfo_children():
-            for c in (w.winfo_children() if hasattr(w, "winfo_children") else []):
-                if isinstance(c, ttk.Button):
-                    n_btn += 1
-    chk("có ≥ 15 nút bấm", n_btn >= 15, f"{n_btn} nút")
+    chk("đủ 3 tab (Phương án B)", len(app.nb.tabs()) == 3,
+        str([app.nb.tab(t, "text") for t in app.nb.tabs()]))
+
+    def _count_buttons(w, acc=None):
+        acc = acc if acc is not None else []
+        for ch in w.winfo_children():
+            if ch.winfo_class() == "TButton":
+                acc.append(ch)
+            _count_buttons(ch, acc)
+        return acc
+    n_btn = len(_count_buttons(app.nb))
+    chk("có ≥ 15 nút bấm (đếm đệ quy cả tab con)", n_btn >= 15, f"{n_btn} nút")
 
     # lỗi: chưa chọn file
     app.det_file.delete(0, "end"); dialogs.clear()

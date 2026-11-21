@@ -339,22 +339,22 @@ class App:
         self.nb = ttk.Notebook(self.root)
         self.nb.pack(fill="both", expand=True, padx=6, pady=6)
 
-        self.tab_rec = ttk.Frame(self.nb)
+        # PHƯƠNG ÁN B: 3 tab — Kế hoạch & Ghi / Phát hiện / Cài đặt & Công cụ
+        self.tab_plan = ttk.Frame(self.nb)
         self.tab_det = ttk.Frame(self.nb)
-        self.tab_tgt = ttk.Frame(self.nb)
-        self.tab_hw = ttk.Frame(self.nb)
-        self.tab_chk = ttk.Frame(self.nb)
-        self.nb.add(self.tab_rec, text=L.t("  1 · GHI TỰ ĐỘNG  "))
+        self.tab_set = ttk.Frame(self.nb)
+        self.nb.add(self.tab_plan, text=L.t("  1 · KẾ HOẠCH & GHI  "))
         self.nb.add(self.tab_det, text=L.t("  2 · PHÁT HIỆN  "))
-        self.nb.add(self.tab_tgt, text=L.t("  3 · MỤC TIÊU  "))
-        self.nb.add(self.tab_hw, text=L.t("  4 · PHẦN CỨNG  "))
-        self.nb.add(self.tab_chk, text=L.t("  5 · KIỂM CHỨNG  "))
+        self.nb.add(self.tab_set, text=L.t("  3 · CÀI ĐẶT & CÔNG CỤ  "))
+        # giữ tên cũ để code/test cũ không vỡ
+        self.tab_rec = self.tab_plan
+        self.tab_tgt = self.tab_set
+        self.tab_hw = self.tab_set
+        self.tab_chk = self.tab_set
 
-        self._build_recorder_tab()
-        self._build_detect_tab()
-        self._build_targets_tab()
-        self._build_hw_tab()
-        self._build_check_tab()
+        self._build_recorder_tab()      # tab 1: bảng kế hoạch + phiên ghi
+        self._build_detect_tab()        # tab 2: phát hiện + guard
+        self._build_settings_tab()      # tab 3: hồ sơ, danh mục, nơi lưu, công cụ
 
         # ---- khung log chung (dưới cùng)
         lf = ttk.LabelFrame(self.root, text=L.t("Nhật ký"))
@@ -370,7 +370,169 @@ class App:
         self.log_text.tag_configure("ok", foreground="#8affa0")
 
     # ---- TAB 1: ghi tự động
+
+    def _build_settings_tab(self):
+        """Tab 3: hồ sơ trạm/kính · danh mục & công cụ · nơi lưu & ngôn ngữ ·
+        chẩn đoán phần cứng · kiểm chứng (giữ đủ tính năng của tab 4/5 cũ)."""
+        import psr_site as _site
+        sub = ttk.Notebook(self.tab_set)
+        sub.pack(fill="both", expand=True, padx=6, pady=6)
+
+        # (a) HỒ SƠ TRẠM / KÍNH -------------------------------------------
+        f_prof = ttk.Frame(sub)
+        sub.add(f_prof, text=L.t("  Hồ sơ trạm/kính  "))
+        prof = _site.active_profile()
+        tel = prof.telescope
+        box = ttk.LabelFrame(f_prof, text=L.t("Trạm & kính (hồ sơ)"))
+        box.pack(fill="x", padx=8, pady=8)
+        rows = [
+            ("Trạm", f"{prof.site.name} · lat {prof.site.lat_deg:.4f}° · "
+                     f"lon {prof.site.lon_deg:.4f}° · UTC{prof.site.tz_offset_h:+.0f}"),
+            ("Kính", f"{tel.name} · D {tel.diameter_m} m · η {tel.efficiency} · "
+                     f"A_eff {tel.a_eff_m2():.2f} m² · {tel.mount}"),
+            ("Gain", f"{tel.gain_k_per_jy()*1e3:.2f} mK/Jy · HPBW = {tel.hpbw_k}·λ/D"),
+            ("Hồ sơ", f"{prof.id}  ({_site.profiles_dir()})"),
+        ]
+        for r, (k, v) in enumerate(rows):
+            ttk.Label(box, text=k + ":", width=10).grid(row=r, column=0, sticky="w",
+                                                        padx=6, pady=2)
+            ttk.Label(box, text=v).grid(row=r, column=1, sticky="w", padx=6)
+        cols = ("band", "fc", "bw", "tsys", "sefd", "hpbw")
+        tv = ttk.Treeview(box, columns=cols, show="headings", height=len(prof.bands))
+        for c, ttl, w in zip(cols, ("Băng", "fc (MHz)", "B (MHz)", "T_sys (K)",
+                                    "SEFD (kJy)", "HPBW (°)"), (90, 90, 90, 90, 100, 90)):
+            tv.heading(c, text=ttl)
+            tv.column(c, width=w, anchor="w")
+        for b in prof.bands:
+            tv.insert("", "end", values=(b.id, f"{b.fc_mhz:.0f}", f"{b.bw_mhz:g}",
+                                         f"{b.tsys_k:g}",
+                                         f"{b.sefd_jy(tel)/1e3:.1f}",
+                                         f"{b.hpbw_deg(tel):.2f}"))
+        tv.grid(row=len(rows), column=0, columnspan=2, sticky="we", padx=6, pady=(8, 4))
+        ttk.Label(f_prof, text=L.t("Đổi hồ sơ: đặt biến môi trường PSR_PROFILE=<file.json> "
+                                   "hoặc sửa configs/. Không cần sửa code."),
+                  foreground="#5f5f5f", wraplength=900, justify="left").pack(
+            anchor="w", padx=12, pady=(0, 8))
+
+        # (b) DANH MỤC & CÔNG CỤ KẾ HOẠCH --------------------------------
+        f_cat = ttk.Frame(sub)
+        sub.add(f_cat, text=L.t("  Danh mục & công cụ  "))
+        self._build_targets_tab(parent=f_cat)
+
+        # (c) NƠI LƯU & NGÔN NGỮ ----------------------------------------
+        f_io = ttk.Frame(sub)
+        sub.add(f_io, text=L.t("  Nơi lưu & ngôn ngữ  "))
+        self._build_dirs_lang(f_io)
+        gate = ttk.LabelFrame(f_io, text=L.t("Ngưỡng gatekeeper (ingest_guard)"))
+        gate.pack(fill="x", padx=8, pady=8)
+        _g = chr(10).join([
+            "ADC < 0,01 % → OK · 0,01–0,5 % → WARN (dùng median/MAD) · > 0,5 % → ABORT",
+            "Spectral Kurtosis: ngoài 1 ± 3σ_SK (σ_SK ≈ √(4/M), M ≥ 1000) → cờ RFI",
+            "Radiometer: σ/μ lệch > 20 % so với 1/√(Δf·τ) → GAIN_DRIFT",
+            "Bandpass trượt 600 s · ΔT_LNA > 2 °C → rút về 180 s",
+            "T_sys > 1,5× chuẩn → DEGRADED (kiểm tra Mặt Trời + elevation < 15°)",
+        ])
+        ttk.Label(gate, justify="left", wraplength=940, text=_g).pack(
+            anchor="w", padx=10, pady=8)
+
+        # (d) CHẨN ĐOÁN PHẦN CỨNG (tab 4 cũ) ---------------------------
+        f_hw = ttk.Frame(sub)
+        sub.add(f_hw, text=L.t("  Phần cứng  "))
+        self._build_hw_tab(parent=f_hw)
+
+        # (e) KIỂM CHỨNG & CORPUS (tab 5 cũ) ---------------------------
+        f_chk = ttk.Frame(sub)
+        sub.add(f_chk, text=L.t("  Kiểm chứng  "))
+        self._build_check_tab(parent=f_chk)
+
+    def _build_plan_table(self, parent):
+        """Bảng kế hoạch đêm nay: chọn dòng → điền mục tiêu + DM xuống phiên ghi."""
+        box = ttk.LabelFrame(parent, text=L.t("Kế hoạch đêm nay"))
+        box.pack(fill="x", padx=8, pady=(8, 4))
+        bar = ttk.Frame(box)
+        bar.pack(fill="x", padx=4, pady=(4, 0))
+        ttk.Label(bar, text=L.t("Hồ sơ:")).pack(side="left", padx=(4, 2))
+        self.plan_profile_lbl = ttk.Label(bar, text="", foreground="#5f5f5f")
+        self.plan_profile_lbl.pack(side="left")
+        ttk.Button(bar, text=L.t("Làm mới"), command=self.refresh_plan).pack(
+            side="right", padx=4)
+        cols = ("tgt", "tr", "alt", "snr", "need", "dmmax")
+        self.plan_tree = ttk.Treeview(box, columns=cols, show="headings", height=6)
+        heads = ("Mục tiêu", "Transit", "Alt max", "SNR/giờ", "→ SNR 8", "dm_max quét")
+        widths = (180, 80, 80, 90, 110, 120)
+        anchors = ("w", "center", "center", "e", "e", "e")
+        for c, ttl, w, anc in zip(cols, heads, widths, anchors):
+            self.plan_tree.heading(c, text=ttl)
+            self.plan_tree.column(c, width=w, anchor=anc)
+        self.plan_tree.pack(fill="x", padx=4, pady=4)
+        self.plan_tree.bind("<<TreeviewSelect>>", self._on_plan_select)
+        self.plan_rows = []
+
+    def refresh_plan(self):
+        """Tính lại bảng kế hoạch từ hồ sơ trạm/kính + flux ATNF (không cần SDR)."""
+        import psr_site as _site
+        import psr_targets as _T
+        import psr_sensitivity as _S
+        from datetime import datetime as _dt
+        prof = _site.active_profile()
+        tel = prof.telescope
+        band = prof.band("lband") or prof.bands[0]
+        sefd = band.sefd_jy(tel)
+        hpbw = tel.hpbw_deg(band.fc_mhz)
+        now = _dt.now()
+        self.plan_tree.delete(*self.plan_tree.get_children())
+        self.plan_rows = []
+        for t in _T.all_pulsars():
+            if t.get("P") is None or t.get("dm") is None:
+                continue
+            try:
+                s_jy, w_s = _T.pick_flux(t, band.fc_mhz)
+                snr_h = (_S.snr_fold(s_jy, sefd, band.bw_mhz * 1e6, 3600.0,
+                                     t["P"], w_s) if s_jy else 0.0)
+                tr = _T.transit_local(t["ra"], now).strftime("%H:%M")
+                alt = _T.alt_max(t["dec"])
+                dmmax = max(100.0, 1.5 * float(t["dm"]))
+                if snr_h > 0:
+                    need_s = (8.0 / snr_h) ** 2 * 3600.0
+                    need = ("{:.0f} phút".format(need_s / 60) if need_s < 5400
+                            else "{:.1f} h".format(need_s / 3600))
+                else:
+                    need = "—"
+                iid = self.plan_tree.insert("", "end", values=(
+                    t["name"], tr, "{:.1f}°".format(alt), "{:.1f}".format(snr_h),
+                    need, "{:.0f}".format(dmmax)))
+                self.plan_rows.append(dict(iid=iid, name=t["name"],
+                                           dm=float(t["dm"]), snr_h=snr_h))
+            except Exception:
+                continue
+        if self.plan_rows:
+            first = self.plan_rows[0]["iid"]
+            self.plan_tree.selection_set(first)
+            self.plan_tree.focus(first)
+            self._on_plan_select(None)
+        self.plan_profile_lbl.configure(
+            text="{} · {} {:.0f} MHz · B {:g} MHz · SEFD {:.1f} kJy · HPBW {:.2f}°".format(
+                prof.id, band.id, band.fc_mhz, band.bw_mhz, sefd / 1e3, hpbw))
+
+    def _on_plan_select(self, _evt=None):
+        sel = self.plan_tree.selection()
+        if not sel:
+            return
+        row = None
+        for r in self.plan_rows:
+            if r["iid"] == sel[0]:
+                row = r
+                break
+        if row is None:
+            return
+        self.rec_target.set(row["name"])
+        self.rec_dm.delete(0, "end")
+        self.rec_dm.insert(0, "{:.3f}".format(row["dm"]))
+        self.log("Kế hoạch → {} · DM {:.3f} · SNR {:.1f}/h".format(
+            row["name"], row["dm"], row["snr_h"]))
+
     def _build_recorder_tab(self):
+        self._build_plan_table(self.tab_plan)
         f = ttk.LabelFrame(self.tab_rec,
                            text=L.t("Ghi phổ động (dynamic spectrum) — 4–5 giờ, không cần canh chừng"))
         f.pack(fill="x", padx=8, pady=8)
@@ -383,26 +545,29 @@ class App:
         self.rec_target.grid(row=0, column=1, padx=4, pady=4, sticky="we")
         ttk.Button(f, text=L.t("＋ Mục tiêu…"), width=13,
                    command=self.manage_targets).grid(row=0, column=2, padx=(0, 6))
+        ttk.Label(f, text=L.t("DM tham chiếu:")).grid(row=0, column=3, sticky="w")
+        self.rec_dm = ttk.Entry(f, width=10)
+        self.rec_dm.grid(row=0, column=4, padx=(2, 10), sticky="w")
 
-        ttk.Label(f, text=L.t("Băng (MHz):")).grid(row=0, column=3, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Băng (MHz):")).grid(row=0, column=5, sticky="w", padx=4)
         self.rec_band = ttk.Combobox(f, values=["423", "1420"], width=6)
         self.rec_band.set("423")
-        self.rec_band.grid(row=0, column=4, padx=4)
+        self.rec_band.grid(row=0, column=6, padx=4)
 
-        ttk.Label(f, text=L.t("Thời lượng (giờ):")).grid(row=0, column=5, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Thời lượng (giờ):")).grid(row=0, column=7, sticky="w", padx=4)
         self.rec_hours = ttk.Spinbox(f, from_=0.5, to=8.0, increment=0.5, width=6)
         self.rec_hours.set(4.5)
-        self.rec_hours.grid(row=0, column=6, padx=4)
+        self.rec_hours.grid(row=0, column=8, padx=4)
 
         ttk.Label(f, text=L.t("Kênh:")).grid(row=1, column=0, sticky="w", padx=4)
         self.rec_nchan = ttk.Spinbox(f, from_=16, to=512, increment=16, width=6)
         self.rec_nchan.set(64)
         self.rec_nchan.grid(row=1, column=1, padx=4, sticky="w")
 
-        ttk.Label(f, text=L.t("tsamp (µs):")).grid(row=1, column=3, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("tsamp (µs):")).grid(row=1, column=5, sticky="w", padx=4)
         self.rec_tsamp = ttk.Spinbox(f, from_=64, to=2000, increment=64, width=6)
         self.rec_tsamp.set(256)
-        self.rec_tsamp.grid(row=1, column=4, padx=4, sticky="w")
+        self.rec_tsamp.grid(row=1, column=6, padx=4, sticky="w")
 
         ttk.Label(f, text=L.t("Nguồn dữ liệu:")).grid(row=2, column=0, sticky="w",
                                                  padx=4, pady=(6, 4))
@@ -430,12 +595,32 @@ class App:
                    command=self.analyze_last_recorded).pack(side="left", padx=4)
         ttk.Button(bf, text=L.t("Mở thư mục dữ liệu"),
                    command=lambda: self.open_dir(DATA_DIR)).pack(side="left", padx=4)
+        self.btn_to_det = ttk.Button(
+            bf, text=L.t("→ Sang Tab 2 để phân tích"), command=self.goto_detect)
+        # chỉ hiện khi đã có file vừa ghi (xem _after_recorded)
 
         self.refresh_target_list(select="B0950+08")
         self.rec_source.set(SOURCE_MODES["auto"])
+        self.root.after_idle(self.refresh_plan)          # bảng kế hoạch đêm nay
+        self.root.after_idle(lambda: self.refresh_hw_status())
+
+        info = ttk.LabelFrame(self.tab_rec, text=L.t("Cách dùng"))
+        info.pack(fill="both", expand=True, padx=8, pady=8)
+        ttk.Label(info, justify="left", wraplength=1000, text=(
+            "· Trước khi treo chảo: python psr_targets.py --transit (hoặc tab 3) để biết giờ transit.\n"
+            "· Nguồn dữ liệu mặc định TỰ ĐỘNG: có SDR là thu thật, không có thì mô phỏng\n"
+            "  (nhãn 🟡 cảnh báo ngay cạnh). Treo máy qua đêm nên chọn BẮT BUỘC SDR THẬT.\n"
+            "· Sau khi cắm/rút dây: bấm Làm mới cạnh nhãn trạng thái để dò lại thiết bị.\n"
+            "· File ghi: data/<ngày>/<target>_<UTC>.fil + .json (metadata: chuỗi phần cứng, ppm, gap log).\n"
+            "· Sáng hôm sau: sang tab 2 chọn file .fil → PHÁT HIỆN để ra báo cáo + biểu đồ."
+        )).pack(anchor="w", padx=8, pady=8)
+
+    # ---- TAB 2: phát hiện
+    def _build_dirs_lang(self, parent):
+        """Nơi lưu + ngôn ngữ (tab Cài đặt)."""
         # ---- NƠI LƯU (chọn được, lưu vào settings.json)
-        sf = ttk.LabelFrame(f, text=L.t("Nơi lưu dữ liệu (có thể chọn ổ khác, ví dụ SSD ngoài)"))
-        sf.grid(row=3, column=0, columnspan=7, sticky="we", padx=4, pady=(8, 4))
+        sf = ttk.LabelFrame(parent, text=L.t("Nơi lưu dữ liệu (có thể chọn ổ khác, ví dụ SSD ngoài)"))
+        sf.pack(fill="x", padx=8, pady=8)
         self.dir_vars = {}
         for r, (key, label) in enumerate((("data_dir", "Dữ liệu thô:"),
                                           ("results_dir", "Kết quả:"))):
@@ -465,20 +650,7 @@ class App:
                   foreground="#5f5f5f").grid(row=2, column=0, columnspan=5,
                                              sticky="w", padx=6, pady=(2, 4))
 
-        self.root.after_idle(lambda: self.refresh_hw_status())
 
-        info = ttk.LabelFrame(self.tab_rec, text=L.t("Cách dùng"))
-        info.pack(fill="both", expand=True, padx=8, pady=8)
-        ttk.Label(info, justify="left", wraplength=1000, text=(
-            "· Trước khi treo chảo: python psr_targets.py --transit (hoặc tab 3) để biết giờ transit.\n"
-            "· Nguồn dữ liệu mặc định TỰ ĐỘNG: có SDR là thu thật, không có thì mô phỏng\n"
-            "  (nhãn 🟡 cảnh báo ngay cạnh). Treo máy qua đêm nên chọn BẮT BUỘC SDR THẬT.\n"
-            "· Sau khi cắm/rút dây: bấm Làm mới cạnh nhãn trạng thái để dò lại thiết bị.\n"
-            "· File ghi: data/<ngày>/<target>_<UTC>.fil + .json (metadata: chuỗi phần cứng, ppm, gap log).\n"
-            "· Sáng hôm sau: sang tab 2 chọn file .fil → PHÁT HIỆN để ra báo cáo + biểu đồ."
-        )).pack(anchor="w", padx=8, pady=8)
-
-    # ---- TAB 2: phát hiện
     def _build_detect_tab(self):
         f = ttk.LabelFrame(self.tab_det, text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
         f.pack(fill="x", padx=8, pady=8)
@@ -500,6 +672,22 @@ class App:
         self.det_iqn = ttk.Spinbox(f, from_=32, to=2048, increment=64, width=6)
         self.det_iqn.set(256)
         self.det_iqn.grid(row=1, column=4, padx=4, sticky="w")
+
+        # ---- ingest_guard: dữ liệu vào đã được nhận dạng thế nào
+        self.guard_box = ttk.LabelFrame(
+            self.tab_det, text=L.t("ingest_guard — dữ liệu vào đã được nhận dạng thế nào"))
+        self.guard_box.pack(fill="x", padx=8, pady=(0, 8))
+        self.guard_lbl = {}
+        _grows = (("fmt", "Định dạng"), ("stage", "Stage"), ("dt", "Δt mẫu"),
+                  ("bp", "Bandpass"), ("meta", "Metadata"),
+                  ("adc", "ADC"), ("sk", "Spectral kurtosis"),
+                  ("rad", "Radiometer"), ("gap", "Gap / đồng hồ"), ("tags", "Nhãn"))
+        for _r, (_k, _ttl) in enumerate(_grows):
+            ttk.Label(self.guard_box, text=_ttl + ":", width=17).grid(
+                row=_r // 2, column=(_r % 2) * 2, sticky="w", padx=6, pady=2)
+            _lbl = ttk.Label(self.guard_box, text="—", foreground="#5f5f5f")
+            _lbl.grid(row=_r // 2, column=(_r % 2) * 2 + 1, sticky="w", padx=6)
+            self.guard_lbl[_k] = _lbl
 
         bf = ttk.Frame(self.tab_det)
         bf.pack(fill="x", padx=8)
@@ -532,8 +720,9 @@ class App:
         self._refresh_figure_list()
 
     # ---- TAB 3: mục tiêu
-    def _build_targets_tab(self):
-        f = ttk.LabelFrame(self.tab_tgt, text=L.t("Khả năng quan sát từ TP.HCM (lat 10.78°N)"))
+    def _build_targets_tab(self, parent=None):
+        host = parent if parent is not None else host
+        f = ttk.LabelFrame(host, text=L.t("Khả năng quan sát từ TP.HCM (lat 10.78°N)"))
         f.pack(fill="x", padx=8, pady=8)
         ttk.Label(f, text=L.t("Ngày (YYYY-MM-DD, bỏ trống = hôm nay):")).grid(
             row=0, column=0, padx=4, pady=4, sticky="w")
@@ -544,7 +733,7 @@ class App:
         self.tgt_bw.set(20)
         self.tgt_bw.grid(row=0, column=3, padx=4)
 
-        bf = ttk.Frame(self.tab_tgt)
+        bf = ttk.Frame(host)
         bf.pack(fill="x", padx=8)
         for txt, cmd in (("Giờ transit (để chảo cố định)", self.tgt_transit),
                          ("Quan sát ban ngày", self.tgt_daytime),
@@ -554,7 +743,7 @@ class App:
                          ("＋ Quản lý mục tiêu…", self.manage_targets)):
             ttk.Button(bf, text=txt, command=cmd).pack(side="left", padx=4, pady=4)
 
-        lf = ttk.LabelFrame(self.tab_tgt, text=L.t("Bảng kết quả"))
+        lf = ttk.LabelFrame(host, text=L.t("Bảng kết quả"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.tgt_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                                state="disabled")
@@ -565,8 +754,9 @@ class App:
         sb1.pack(side="right", fill="y")
 
     # ---- TAB 4: phần cứng
-    def _build_hw_tab(self):
-        f = ttk.LabelFrame(self.tab_hw, text=L.t("Dự đoán chuỗi linh kiện + tự fallback"))
+    def _build_hw_tab(self, parent=None):
+        host = parent if parent is not None else host
+        f = ttk.LabelFrame(host, text=L.t("Dự đoán chuỗi linh kiện + tự fallback"))
         f.pack(fill="x", padx=8, pady=8)
         ttk.Label(f, text=L.t("Băng:")).grid(row=0, column=0, padx=4, pady=4)
         self.hw_band = ttk.Combobox(f, values=["423", "1420"], width=6)
@@ -582,7 +772,7 @@ class App:
         ttk.Button(f, text=L.t("Tự kiểm tra công thức"), command=self.hw_selfcheck).grid(
             row=0, column=5, padx=4)
 
-        lf = ttk.LabelFrame(self.tab_hw, text=L.t("Kết quả"))
+        lf = ttk.LabelFrame(host, text=L.t("Kết quả"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.hw_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                               state="disabled")
@@ -592,8 +782,9 @@ class App:
         sb.pack(side="right", fill="y")
 
     # ---- TAB 5: kiểm chứng
-    def _build_check_tab(self):
-        f = ttk.LabelFrame(self.tab_chk, text=L.t("Kiểm chứng máy móc (chạy trước khi tin kết quả)"))
+    def _build_check_tab(self, parent=None):
+        host = parent if parent is not None else host
+        f = ttk.LabelFrame(host, text=L.t("Kiểm chứng máy móc (chạy trước khi tin kết quả)"))
         f.pack(fill="x", padx=8, pady=8)
         self.btn_self = ttk.Button(f, text=L.t("▶ Chạy selftest nhanh (21 test)"),
                                    command=self.run_selftest)
@@ -610,7 +801,7 @@ class App:
                    command=lambda: self.open_dir(os.path.join(ROOT_DIR, "docs"))
                    ).pack(side="left", padx=6)
 
-        lf = ttk.LabelFrame(self.tab_chk, text=L.t("Kết quả kiểm chứng"))
+        lf = ttk.LabelFrame(host, text=L.t("Kết quả kiểm chứng"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.chk_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                                state="disabled")
@@ -943,7 +1134,7 @@ class App:
                 nchan=nchan, tsamp_us=tsamp,
                 out_dir=os.path.join(DATA_DIR, datetime.now().strftime("%Y%m%d")),
                 stop_event=self.stop_event)
-        self.run_bg(job, on_done=self._refresh_figure_list)
+        self.run_bg(job, on_done=self._after_recorded)
 
     def stop_recording(self):
         self.stop_event.set()
@@ -961,10 +1152,39 @@ class App:
         if newest is None:
             self.log("Chưa có file .fil nào trong data/ — hãy ghi thử trước.", "err")
             return
+        self.last_file = newest
+        self.goto_detect(newest)
+
+    def goto_detect(self, path: str | None = None) -> None:
+        """Chuyển sang Tab 2 với ĐÚNG file vừa ghi VÀ DM tham chiếu của mục tiêu."""
+        path = path or getattr(self, "last_file", None)
+        if not path or not os.path.exists(path):
+            self.log("Chưa có file vừa ghi để phân tích.", "err")
+            return
         self.det_file.delete(0, "end")
-        self.det_file.insert(0, newest)
-        self.log(f"Chọn file mới nhất: {newest}")
+        self.det_file.insert(0, path)
+        dm = (self.rec_dm.get() or "").strip()
+        if dm:
+            self.det_dm.delete(0, "end")
+            self.det_dm.insert(0, dm)
+        name = os.path.basename(path)
+        self.log(f"→ Tab 2: {name}" + (f" · DM tham chiếu {dm}" if dm else ""), "ok")
+        try:
+            self.nb.select(self.tab_det)
+        except Exception:
+            pass
         self.run_detect()
+
+    def _after_recorded(self, meta=None) -> None:
+        """Sau khi ghi xong: nhớ file, hiện nút chuyển tab, refresh danh sách hình."""
+        p = (meta or {}).get("file") or (meta or {}).get("path")
+        if p and os.path.exists(p):
+            self.last_file = p
+            try:
+                self.btn_to_det.pack(side="left", padx=4)
+            except Exception:
+                pass
+        self._refresh_figure_list()
 
     # ------------------------------------------------------------ TAB 2 actions
     def pick_fil(self):
@@ -1003,14 +1223,66 @@ class App:
         except Exception:
             nchan_iq = 256
 
+        self._last_metrics = None
+
         def job():
-            psr_detect.load_any.__defaults__      # giữ chữ ký cũ
-            psr_detect.detect(path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq)
+            self._last_metrics = psr_detect.detect(
+                path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq)
         self.run_bg(job, on_done=self._after_detect)
 
+    def _fill_guard(self, m: dict) -> None:
+        """Hiển thị tóm tắt nhận dạng của ingest_guard cho lần chạy vừa rồi."""
+        g = (m or {}).get("guard") or {}
+        if not g:
+            return
+        fmt = ((g.get("steps") or {}).get("format") or {})
+        kind = fmt.get("kind") or "?"
+        stg = g.get("stage") or "?"
+        inferred = bool(g.get("inferred")) or any(
+            "anned" in str(x) for x in (g.get("warnings") or []) if "suy ra" in str(x))
+        tags = ", ".join(g.get("tags") or []) or "—"
+        met = g.get("metrics") or {}
+        gate = (g.get("steps") or {}).get("gatekeeper") or {}
+        adc = gate.get("adc") or {}
+        sk = gate.get("sk") or {}
+        rad = gate.get("radiometer") or {}
+        ts = met.get("tsamp_s")
+        branch = ("pulsar" if ts and ts <= 1e-3 else
+                  "HI/continuum" if ts and ts > 10e-3 else "?")
+        self.guard_lbl["fmt"].configure(
+            text="{} ({})".format(kind, "INFERRED" if inferred else "EXACT"))
+        self.guard_lbl["stage"].configure(text=str(stg))
+        self.guard_lbl["dt"].configure(
+            text=("{} µs → {}".format(round(ts * 1e6), branch) if ts else "—"))
+        self.guard_lbl["bp"].configure(
+            text=str(met.get("bandpass", "—")) + (
+                " · flatten" if "flatten" in (g.get("actions") or []) else ""))
+        self.guard_lbl["meta"].configure(
+            text=("thiếu: " + ", ".join(g.get("inferred") or [])) if g.get("inferred")
+            else "đầy đủ")
+        self.guard_lbl["adc"].configure(
+            text="{:.3f} % ({})".format(100.0 * float(adc.get("frac") or 0),
+                                        adc.get("tag") or "n/a"))
+        self.guard_lbl["sk"].configure(
+            text="{} kênh ngoài ±3σ".format(sk.get("n_bad", 0))
+            if sk.get("n_bad") is not None else "—")
+        self.guard_lbl["rad"].configure(
+            text=("{} ({:+.0%})".format(rad.get("tag"), rad.get("deviation") or 0)
+                  if rad else "—"))
+        self.guard_lbl["gap"].configure(
+            text="{} gap".format(met.get("n_gaps", 0)))
+        self.guard_lbl["tags"].configure(text=tags)
+
     def _after_detect(self):
+        try:
+            self._fill_guard(getattr(self, "_last_metrics", None) or {})
+        except Exception:
+            pass
         self._refresh_figure_list()
-        stem = os.path.splitext(os.path.basename(self.det_file.get().strip()))[0]
+        m = getattr(self, "_last_metrics", None) or {}
+        stem = os.path.basename(str(m.get("out_dir") or "").rstrip("/" + chr(92)))
+        if not stem:
+            stem = os.path.splitext(os.path.basename(self.det_file.get().strip()))[0]
         cand = f"{stem}/fig2_detection.png"
         if cand in self.det_figpick.cget("values"):
             self.det_figpick.set(cand)
@@ -1178,14 +1450,14 @@ class App:
         def job():
             import psr_pipeline
             psr_pipeline.run(quick=True)
-        self.run_bg(job, on_done=self._refresh_figure_list)
+        self.run_bg(job, on_done=self._after_recorded)
 
     def run_stress(self):
         """Chạy toàn bộ corpus dữ liệu xấu (kể cả ca TIÊM vào nền RFI thật)."""
         def job():
             import stress_test
             stress_test.main()
-        self.run_bg(job, on_done=self._refresh_figure_list)
+        self.run_bg(job, on_done=self._after_recorded)
 
     def run_recorder_selftest(self):
         def job():

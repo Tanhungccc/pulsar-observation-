@@ -603,8 +603,13 @@ def inspect(path: str, meta: dict | None = None, sample_rows: int = 2000) -> dic
         tags.add("ADC_WARN")
     if gate.get("radiometer", {}).get("tag") == "GAIN_DRIFT":
         tags.add("GAIN_DRIFT")
-    if gate.get("sk", {}).get("n_bad", 0) > 0:
-        tags.add("RFI_HEAVY")
+    _sk = gate.get("sk") or {}
+    if _sk.get("n_bad", 0) and x.ndim == 2 and x.shape[1]:
+        _frac = _sk["n_bad"] / max(1, x.shape[1])
+        if 0.05 < _frac <= 0.5:
+            tags.add("RFI_HEAVY")      # một phần kênh → RFI hẹp băng
+        elif _frac > 0.5:
+            tags.add("GAIN_DRIFT")     # gần như mọi kênh → nền không dừng
     if gate["thermal"]["tag"] == "DEGRADED":
         tags.add("DEGRADED")
     rep["tags"] = sorted(tags or {"VALID"})
@@ -621,6 +626,12 @@ def analyze_array(dyn, header: dict, meta: dict | None = None,
     rep = dict(path=os.path.basename(str(meta.get("path", header.get("source", "")))),
                steps={}, actions=[], warnings=[], metrics={}, tags=[],
                stage=meta.get("stage"), inferred=[], ok=True, schema_version=3)
+    _p = meta.get("path")
+    if _p and os.path.exists(str(_p)):
+        try:
+            rep["steps"]["format"] = sniff_format(str(_p))
+        except Exception:                        # noqa: BLE001
+            pass
     sample = x[:, :max_cols] if x.ndim == 2 else x[:max_cols]
     xc, srep = sanitize_nonfinite(sample, "dyn")
     if srep["tag"] == "REPAIRED":
@@ -648,8 +659,13 @@ def analyze_array(dyn, header: dict, meta: dict | None = None,
         tags.add("SATURATED")
     if gate.get("radiometer", {}).get("tag") == "GAIN_DRIFT":
         tags.add("GAIN_DRIFT")
-    if gate.get("sk", {}).get("n_bad", 0) > 0:
-        tags.add("RFI_HEAVY")
+    _sk = gate.get("sk") or {}
+    if _sk.get("n_bad", 0) and x.ndim == 2 and x.shape[1]:
+        _frac = _sk["n_bad"] / max(1, x.shape[1])
+        if 0.05 < _frac <= 0.5:
+            tags.add("RFI_HEAVY")      # một phần kênh → RFI hẹp băng
+        elif _frac > 0.5:
+            tags.add("GAIN_DRIFT")     # gần như mọi kênh → nền không dừng
     if gate["thermal"]["tag"] == "DEGRADED":
         tags.add("DEGRADED")
     rep["tags"] = sorted(tags or {"VALID"})
