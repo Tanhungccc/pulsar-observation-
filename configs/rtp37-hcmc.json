@@ -1,0 +1,51 @@
+{
+  "id": "poam-rtp37-hcmc",
+  "site": {
+    "name": "TP.HCM",
+    "lat_deg": 10.7769,
+    "lon_deg": 106.7009,
+    "elev_m": 10.0,
+    "tz_offset_h": 7.0
+  },
+  "telescope": {
+    "name": "POAM RTP-3.7",
+    "diameter_m": 3.7,
+    "efficiency": 0.55,
+    "mount": "track",
+    "hpbw_k": 1.2
+  },
+  "bands": [
+    {
+      "id": "lband",
+      "fc_mhz": 1420.0,
+      "bw_mhz": 50.0,
+      "tsys_k": 97.5,
+      "eff": 0.7,
+      "note": "L-band 1350–1450, G/T 13,55 dB/K"
+    },
+    {
+      "id": "p423",
+      "fc_mhz": 423.0,
+      "bw_mhz": 20.0,
+      "tsys_k": 150.0,
+      "eff": 0.55,
+      "note": "cần feed+LNA+BPF 380–450 MHz"
+    }
+  ],
+  "backend": {
+    "type": "N6002",
+    "max_bw_mhz": 50.0,
+    "bits": 8,
+    "channels": 2
+  },
+  "rfi": {
+    "notch_mhz": [
+      [
+        88,
+        108
+      ]
+    ],
+    "notes": "FM rất mạnh ở TP.HCM"
+  },
+  "schema_version": 1
+}

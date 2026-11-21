@@ -25,9 +25,12 @@ from psr_core import ensure_utf8_stdout
 from psr_sensitivity import (Config, Dish, chan_smear_ms, required_time_s,
                              snr_fold, verdict)
 
-LAT_DEG = 10.7769          # TP.HCM
-LON_DEG = 106.7009
-TZ_H = 7.0
+# Vị trí trạm lấy từ HỒ SƠ (psr_site) — không còn viết cứng TP.HCM.
+# Đổi hồ sơ: đặt biến môi trường PSR_PROFILE=<đường dẫn json>.
+import psr_site as _site                      # noqa: E402
+LAT_DEG = _site.LAT_DEG
+LON_DEG = _site.LON_DEG
+TZ_H = _site.TZ_H
 RESULTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        "results")
 
@@ -129,13 +132,15 @@ def jd_from_datetime(dt: datetime) -> float:
     return 2440587.5 + (dt - epoch).total_seconds() / 86400.0
 
 
-def lst_deg(jd, lon_deg=LON_DEG):
+def lst_deg(jd, lon_deg=None):
+    lon_deg = LON_DEG if lon_deg is None else lon_deg
     d = np.asarray(jd) - 2451545.0
     gmst = 280.46061837 + 360.98564736629 * d
     return (gmst + lon_deg) % 360.0
 
 
-def alt_deg(ra_deg, dec_deg, jd, lat_deg=LAT_DEG):
+def alt_deg(ra_deg, dec_deg, jd, lat_deg=None):
+    lat_deg = LAT_DEG if lat_deg is None else lat_deg
     ha = np.radians(lst_deg(jd) - ra_deg)
     dec = math.radians(dec_deg)
     lat = math.radians(lat_deg)
@@ -170,7 +175,8 @@ def best_month(ra_deg, dec_deg, alt_min=30.0):
     return best
 
 
-def alt_max(dec_deg, lat_deg=LAT_DEG):
+def alt_max(dec_deg, lat_deg=None):
+    lat_deg = LAT_DEG if lat_deg is None else lat_deg
     return 90.0 - abs(lat_deg - dec_deg)
 
 

@@ -140,6 +140,40 @@ def test_subband_dm():
           f"DM {r['dm']:.1f} vs 200.0 ({err*100:.1f}%)")
 
 
+def test_constants():
+    """L0: hằng số vật lý + công thức dẫn xuất (chống lỗi đơn vị)."""
+    import psr_constants as C
+    bad = C.self_check()
+    check("hằng số & công thức chuẩn (K_DM, nhòe kênh, HPBW, SEFD, tán xạ)",
+          not bad, "; ".join(bad) or f"K_DM={C.K_DM:g}")
+
+
+def test_site_profile():
+    """L0: hồ sơ trạm/kính — số mặc định, đổi trạm, nam bán cầu, chia kênh."""
+    import psr_site as S
+    bad = S.self_check()
+    check("hồ sơ mặc định cho lại số đã công bố (HPBW/SEFD)", not bad, "; ".join(bad))
+
+    # đổi sang trạm nam bán cầu: không được giả định bắc bán cầu
+    p = S.default_profile()
+    p.site = S.Site("Sydney", -33.87, 151.21, 40, 10)
+    alt_neg = 90.0 - abs(p.site.lat_deg - (-45.0))
+    check("hồ sơ nam bán cầu: alt_max tính đúng",
+       abs(alt_neg - 78.87) < 0.5, f"alt_max={alt_neg:.1f}°")
+
+    # kính nhỏ hơn: SEFD phải tăng theo 1/A
+    small = S.Telescope("1.4 m", 1.4, 0.55)
+    big = S.Telescope("3.7 m", 3.7, 0.55)
+    b = S.Band("x", 1420.0, 20.0, 150.0)
+    ratio = b.sefd_jy(small) / b.sefd_jy(big)
+    check("SEFD ∝ 1/A khi đổi kính", abs(ratio - (3.7 / 1.4) ** 2) < 0.5,
+       f"tỷ số {ratio:.2f}, cần {(3.7/1.4)**2:.2f}")
+
+    # cảnh báo chia kênh
+    chk = S.default_profile().check_channelization(S.Band("x", 423.0, 20.0), 64, 50.0, 2.0)
+    check("cảnh báo khi nhòe kênh > W50/2", not chk["ok"], chk["advice"][:60])
+
+
 def test_targets():
     a = alt_max(7.9266)      # B0950+08
     check("alt_max(B0950+08) ≈ 87.1°", abs(a - 87.1) < 0.2, f"{a:.1f}°")
@@ -262,6 +296,8 @@ if __name__ == "__main__":
     test_sensitivity_formula()
     test_period_refine()
     test_subband_dm()
+    test_constants()
+    test_site_profile()
     test_targets()
     test_zero_dm_keeps_pulse()
     test_subband_dm_single()
