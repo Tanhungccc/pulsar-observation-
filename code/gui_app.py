@@ -157,6 +157,7 @@ def asset_path(name: str) -> str | None:
 import psr_detect            # noqa: E402
 import record_unattended     # noqa: E402
 import psr_paths             # noqa: E402
+import psr_i18n as L         # noqa: E402
 
 DATA_DIR = psr_paths.data_dir()          # một nơi duy nhất quyết định đường dẫn
 RESULTS_DIR = psr_paths.results_dir()
@@ -215,7 +216,7 @@ class TargetDialog(tk.Toplevel):
     def __init__(self, master, app: "App", edit_name: str | None = None):
         super().__init__(master)
         self.app = app
-        self.title("Mục tiêu — thêm/sửa (lưu vào targets_user.json)")
+        self.title(L.t("Mục tiêu — thêm/sửa (lưu vào targets_user.json)"))
         self.transient(master)
         self.resizable(False, False)
         self.vars = {}
@@ -244,11 +245,11 @@ class TargetDialog(tk.Toplevel):
         bf = ttk.Frame(f)
         bf.grid(row=len(self.FIELDS) + 1, column=0, columnspan=3, sticky="we",
                 pady=(10, 0))
-        ttk.Button(bf, text="Lưu", command=self._save).pack(side="left", padx=4)
+        ttk.Button(bf, text=L.t("Lưu"), command=self._save).pack(side="left", padx=4)
         if tgt and tgt.get("custom"):
-            ttk.Button(bf, text="Xoá mục tiêu", command=self._delete).pack(
+            ttk.Button(bf, text=L.t("Xoá mục tiêu"), command=self._delete).pack(
                 side="left", padx=4)
-        ttk.Button(bf, text="Đóng", command=self.destroy).pack(side="right", padx=4)
+        ttk.Button(bf, text=L.t("Đóng"), command=self.destroy).pack(side="right", padx=4)
         ttk.Label(f, foreground="#5f5f5f", wraplength=560, justify="left", text=(
             "· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ."
         )).grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="w",
@@ -279,7 +280,7 @@ class TargetDialog(tk.Toplevel):
             return
         problems = psr_targets.validate_target(d)
         if problems:
-            self.msg.configure(text="Sửa giúp: " + "; ".join(problems))
+            self.msg.configure(text=L.t("Sửa giúp: ") + "; ".join(problems))
             return
         try:
             item = psr_targets.upsert_target(d)
@@ -306,7 +307,7 @@ class TargetDialog(tk.Toplevel):
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Pulsar Observation — POAM RTP-3.7 (TP.HCM)")
+        self.root.title(L.t("Pulsar Observation — POAM RTP-3.7 (TP.HCM)"))
         self.icon_info = apply_icon(self.root)
         self.root.geometry("1100x780")
         self.root.minsize(900, 620)
@@ -343,11 +344,11 @@ class App:
         self.tab_tgt = ttk.Frame(self.nb)
         self.tab_hw = ttk.Frame(self.nb)
         self.tab_chk = ttk.Frame(self.nb)
-        self.nb.add(self.tab_rec, text="  1 · GHI TỰ ĐỘNG  ")
-        self.nb.add(self.tab_det, text="  2 · PHÁT HIỆN  ")
-        self.nb.add(self.tab_tgt, text="  3 · MỤC TIÊU  ")
-        self.nb.add(self.tab_hw, text="  4 · PHẦN CỨNG  ")
-        self.nb.add(self.tab_chk, text="  5 · KIỂM CHỨNG  ")
+        self.nb.add(self.tab_rec, text=L.t("  1 · GHI TỰ ĐỘNG  "))
+        self.nb.add(self.tab_det, text=L.t("  2 · PHÁT HIỆN  "))
+        self.nb.add(self.tab_tgt, text=L.t("  3 · MỤC TIÊU  "))
+        self.nb.add(self.tab_hw, text=L.t("  4 · PHẦN CỨNG  "))
+        self.nb.add(self.tab_chk, text=L.t("  5 · KIỂM CHỨNG  "))
 
         self._build_recorder_tab()
         self._build_detect_tab()
@@ -356,7 +357,7 @@ class App:
         self._build_check_tab()
 
         # ---- khung log chung (dưới cùng)
-        lf = ttk.LabelFrame(self.root, text="Nhật ký")
+        lf = ttk.LabelFrame(self.root, text=L.t("Nhật ký"))
         lf.pack(fill="both", expand=False, padx=6, pady=(0, 6))
         self.log_text = tk.Text(lf, height=10, wrap="word",
                                 font=("Consolas", 9), state="disabled",
@@ -371,39 +372,39 @@ class App:
     # ---- TAB 1: ghi tự động
     def _build_recorder_tab(self):
         f = ttk.LabelFrame(self.tab_rec,
-                           text="Ghi phổ động (dynamic spectrum) — 4–5 giờ, không cần canh chừng")
+                           text=L.t("Ghi phổ động (dynamic spectrum) — 4–5 giờ, không cần canh chừng"))
         f.pack(fill="x", padx=8, pady=8)
 
-        ttk.Label(f, text="Mục tiêu:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(f, text=L.t("Mục tiêu:")).grid(row=0, column=0, sticky="w", padx=4, pady=4)
         self.rec_target = ttk.Combobox(f, values=[], width=18)
         # CHO PHÉP GÕ TAY: quan sát nguồn ngoài danh mục, không bị khoá cứng
         self.rec_target.configure(state="normal")
         self.rec_target.set("B0950+08")
         self.rec_target.grid(row=0, column=1, padx=4, pady=4, sticky="we")
-        ttk.Button(f, text="＋ Mục tiêu…", width=13,
+        ttk.Button(f, text=L.t("＋ Mục tiêu…"), width=13,
                    command=self.manage_targets).grid(row=0, column=2, padx=(0, 6))
 
-        ttk.Label(f, text="Băng (MHz):").grid(row=0, column=3, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Băng (MHz):")).grid(row=0, column=3, sticky="w", padx=4)
         self.rec_band = ttk.Combobox(f, values=["423", "1420"], width=6)
         self.rec_band.set("423")
         self.rec_band.grid(row=0, column=4, padx=4)
 
-        ttk.Label(f, text="Thời lượng (giờ):").grid(row=0, column=5, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Thời lượng (giờ):")).grid(row=0, column=5, sticky="w", padx=4)
         self.rec_hours = ttk.Spinbox(f, from_=0.5, to=8.0, increment=0.5, width=6)
         self.rec_hours.set(4.5)
         self.rec_hours.grid(row=0, column=6, padx=4)
 
-        ttk.Label(f, text="Kênh:").grid(row=1, column=0, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Kênh:")).grid(row=1, column=0, sticky="w", padx=4)
         self.rec_nchan = ttk.Spinbox(f, from_=16, to=512, increment=16, width=6)
         self.rec_nchan.set(64)
         self.rec_nchan.grid(row=1, column=1, padx=4, sticky="w")
 
-        ttk.Label(f, text="tsamp (µs):").grid(row=1, column=3, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("tsamp (µs):")).grid(row=1, column=3, sticky="w", padx=4)
         self.rec_tsamp = ttk.Spinbox(f, from_=64, to=2000, increment=64, width=6)
         self.rec_tsamp.set(256)
         self.rec_tsamp.grid(row=1, column=4, padx=4, sticky="w")
 
-        ttk.Label(f, text="Nguồn dữ liệu:").grid(row=2, column=0, sticky="w",
+        ttk.Label(f, text=L.t("Nguồn dữ liệu:")).grid(row=2, column=0, sticky="w",
                                                  padx=4, pady=(6, 4))
         self.rec_source = ttk.Combobox(
             f, values=list(SOURCE_MODES.values()), state="readonly", width=44)
@@ -413,27 +414,27 @@ class App:
         self.rec_source.bind("<<ComboboxSelected>>", lambda _e: self.refresh_hw_status())
 
         # nhãn trạng thái phần cứng ngay cạnh vùng ghi + nút Làm mới
-        self.rec_hw_label = ttk.Label(f, text="… đang dò thiết bị", width=46)
+        self.rec_hw_label = ttk.Label(f, text=L.t("… đang dò thiết bị"), width=46)
         self.rec_hw_label.grid(row=2, column=4, columnspan=2, sticky="w", padx=4)
-        ttk.Button(f, text="Làm mới", width=9,
+        ttk.Button(f, text=L.t("Làm mới"), width=9,
                    command=self.refresh_hw_status).grid(row=2, column=6, sticky="w")
 
         bf = ttk.Frame(self.tab_rec)
         bf.pack(fill="x", padx=8)
-        self.btn_rec = ttk.Button(bf, text="▶ Bắt đầu ghi", command=self.start_recording)
+        self.btn_rec = ttk.Button(bf, text=L.t("▶ Bắt đầu ghi"), command=self.start_recording)
         self.btn_rec.pack(side="left", padx=4, pady=4)
-        self.btn_stop = ttk.Button(bf, text="■ Dừng", command=self.stop_recording,
+        self.btn_stop = ttk.Button(bf, text=L.t("■ Dừng"), command=self.stop_recording,
                                    state="disabled")
         self.btn_stop.pack(side="left", padx=4)
-        ttk.Button(bf, text="Phân tích file vừa ghi",
+        ttk.Button(bf, text=L.t("Phân tích file vừa ghi"),
                    command=self.analyze_last_recorded).pack(side="left", padx=4)
-        ttk.Button(bf, text="Mở thư mục dữ liệu",
+        ttk.Button(bf, text=L.t("Mở thư mục dữ liệu"),
                    command=lambda: self.open_dir(DATA_DIR)).pack(side="left", padx=4)
 
         self.refresh_target_list(select="B0950+08")
         self.rec_source.set(SOURCE_MODES["auto"])
         # ---- NƠI LƯU (chọn được, lưu vào settings.json)
-        sf = ttk.LabelFrame(f, text="Nơi lưu dữ liệu (có thể chọn ổ khác, ví dụ SSD ngoài)")
+        sf = ttk.LabelFrame(f, text=L.t("Nơi lưu dữ liệu (có thể chọn ổ khác, ví dụ SSD ngoài)"))
         sf.grid(row=3, column=0, columnspan=7, sticky="we", padx=4, pady=(8, 4))
         self.dir_vars = {}
         for r, (key, label) in enumerate((("data_dir", "Dữ liệu thô:"),
@@ -443,22 +444,30 @@ class App:
             var = tk.StringVar(value=self._dir_value(key))
             ent = ttk.Entry(sf, textvariable=var, width=64)
             ent.grid(row=r, column=1, sticky="we", padx=4, pady=3)
-            ttk.Button(sf, text="Chọn…", width=8,
+            ttk.Button(sf, text=L.t("Chọn…"), width=8,
                        command=lambda k=key, v=var: self.choose_dir(k, v)).grid(
                 row=r, column=2, padx=4)
-            ttk.Button(sf, text="Mở", width=5,
+            ttk.Button(sf, text=L.t("Mở"), width=5,
                        command=lambda k=key: self.open_dir(self._dir_value(k))).grid(
                 row=r, column=3, padx=(0, 6))
             self.dir_vars[key] = var
-        ttk.Button(sf, text="Áp dụng", width=10,
+        ttk.Button(sf, text=L.t("Áp dụng"), width=10,
                    command=self.apply_dirs).grid(row=0, column=4, rowspan=2, padx=6)
-        ttk.Label(sf, text="(ghi vào settings.json cạnh app; có hiệu lực ngay, không cần khởi động lại)",
+        # ---- ngôn ngữ (áp dụng sau khi khởi động lại) -------------------
+        ttk.Label(sf, text=L.t("Ngôn ngữ / Language:"), width=20).grid(
+            row=3, column=0, sticky="w", padx=(6, 2), pady=(4, 2))
+        self.lang_box = ttk.Combobox(
+            sf, values=[L.LANG_NAMES[k] for k in L.LANGS], state="readonly", width=16)
+        self.lang_box.set(L.LANG_NAMES.get(L.current(), "Tiếng Việt"))
+        self.lang_box.grid(row=3, column=1, sticky="w", padx=4)
+        self.lang_box.bind("<<ComboboxSelected>>", self.on_lang_change)
+        ttk.Label(sf, text=L.t("(ghi vào settings.json cạnh app; có hiệu lực ngay, không cần khởi động lại)"),
                   foreground="#5f5f5f").grid(row=2, column=0, columnspan=5,
                                              sticky="w", padx=6, pady=(2, 4))
 
         self.root.after_idle(lambda: self.refresh_hw_status())
 
-        info = ttk.LabelFrame(self.tab_rec, text="Cách dùng")
+        info = ttk.LabelFrame(self.tab_rec, text=L.t("Cách dùng"))
         info.pack(fill="both", expand=True, padx=8, pady=8)
         ttk.Label(info, justify="left", wraplength=1000, text=(
             "· Trước khi treo chảo: python psr_targets.py --transit (hoặc tab 3) để biết giờ transit.\n"
@@ -471,20 +480,20 @@ class App:
 
     # ---- TAB 2: phát hiện
     def _build_detect_tab(self):
-        f = ttk.LabelFrame(self.tab_det, text="Phát hiện pulsar trên file filterbank (.fil)")
+        f = ttk.LabelFrame(self.tab_det, text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
         f.pack(fill="x", padx=8, pady=8)
 
-        ttk.Button(f, text="Chọn file .fil…", command=self.pick_fil).grid(
+        ttk.Button(f, text=L.t("Chọn file .fil…"), command=self.pick_fil).grid(
             row=0, column=0, padx=4, pady=4)
         self.det_file = ttk.Entry(f, width=64)
         self.det_file.grid(row=0, column=1, columnspan=3, padx=4, sticky="we")
 
-        ttk.Label(f, text="DM tham chiếu:").grid(row=1, column=0, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("DM tham chiếu:")).grid(row=1, column=0, sticky="w", padx=4)
         self.det_dm = ttk.Entry(f, width=12)
         self.det_dm.insert(0, "26.7641")
         self.det_dm.grid(row=1, column=1, padx=4, sticky="w")
 
-        ttk.Label(f, text="IQ → kênh:").grid(row=1, column=2, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("IQ → kênh:")).grid(row=1, column=2, sticky="w", padx=4)
         self.det_p = ttk.Entry(f, width=10)
         self.det_p.insert(0, "0.714519699557")
         self.det_p.grid(row=1, column=3, padx=4, sticky="w")
@@ -494,25 +503,25 @@ class App:
 
         bf = ttk.Frame(self.tab_det)
         bf.pack(fill="x", padx=8)
-        self.btn_det = ttk.Button(bf, text="▶ Chạy phát hiện", command=self.run_detect)
+        self.btn_det = ttk.Button(bf, text=L.t("▶ Chạy phát hiện"), command=self.run_detect)
         self.btn_det.pack(side="left", padx=4, pady=4)
-        ttk.Button(bf, text="Mở báo cáo TXT",
+        ttk.Button(bf, text=L.t("Mở báo cáo TXT"),
                    command=self.open_report).pack(side="left", padx=4)
-        ttk.Button(bf, text="Mở metrics JSON",
+        ttk.Button(bf, text=L.t("Mở metrics JSON"),
                    command=self.open_metrics).pack(side="left", padx=4)
-        ttk.Button(bf, text="Mở thư mục kết quả của lần chạy",
+        ttk.Button(bf, text=L.t("Mở thư mục kết quả của lần chạy"),
                    command=self.open_last_result_dir).pack(side="left", padx=4)
 
         # ---- hiển thị biểu đồ
-        vf = ttk.LabelFrame(self.tab_det, text="Biểu đồ kết quả")
+        vf = ttk.LabelFrame(self.tab_det, text=L.t("Biểu đồ kết quả"))
         vf.pack(fill="both", expand=True, padx=8, pady=8)
         top = ttk.Frame(vf)
         top.pack(fill="x")
-        ttk.Label(top, text="Hình:").pack(side="left", padx=4)
+        ttk.Label(top, text=L.t("Hình:")).pack(side="left", padx=4)
         self.det_figpick = ttk.Combobox(top, values=[], width=42)
         self.det_figpick.pack(side="left", padx=4)
         self.det_figpick.bind("<<ComboboxSelected>>", self.show_selected_figure)
-        ttk.Button(top, text="Mở bằng trình xem ảnh",
+        ttk.Button(top, text=L.t("Mở bằng trình xem ảnh"),
                    command=self.open_figure_external).pack(side="left", padx=4)
 
         from matplotlib.figure import Figure
@@ -524,13 +533,13 @@ class App:
 
     # ---- TAB 3: mục tiêu
     def _build_targets_tab(self):
-        f = ttk.LabelFrame(self.tab_tgt, text="Khả năng quan sát từ TP.HCM (lat 10.78°N)")
+        f = ttk.LabelFrame(self.tab_tgt, text=L.t("Khả năng quan sát từ TP.HCM (lat 10.78°N)"))
         f.pack(fill="x", padx=8, pady=8)
-        ttk.Label(f, text="Ngày (YYYY-MM-DD, bỏ trống = hôm nay):").grid(
+        ttk.Label(f, text=L.t("Ngày (YYYY-MM-DD, bỏ trống = hôm nay):")).grid(
             row=0, column=0, padx=4, pady=4, sticky="w")
         self.tgt_date = ttk.Entry(f, width=12)
         self.tgt_date.grid(row=0, column=1, padx=4)
-        ttk.Label(f, text="Băng thông (MHz):").grid(row=0, column=2, padx=4)
+        ttk.Label(f, text=L.t("Băng thông (MHz):")).grid(row=0, column=2, padx=4)
         self.tgt_bw = ttk.Spinbox(f, from_=2.4, to=56, increment=1.0, width=6)
         self.tgt_bw.set(20)
         self.tgt_bw.grid(row=0, column=3, padx=4)
@@ -545,7 +554,7 @@ class App:
                          ("＋ Quản lý mục tiêu…", self.manage_targets)):
             ttk.Button(bf, text=txt, command=cmd).pack(side="left", padx=4, pady=4)
 
-        lf = ttk.LabelFrame(self.tab_tgt, text="Bảng kết quả")
+        lf = ttk.LabelFrame(self.tab_tgt, text=L.t("Bảng kết quả"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.tgt_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                                state="disabled")
@@ -557,23 +566,23 @@ class App:
 
     # ---- TAB 4: phần cứng
     def _build_hw_tab(self):
-        f = ttk.LabelFrame(self.tab_hw, text="Dự đoán chuỗi linh kiện + tự fallback")
+        f = ttk.LabelFrame(self.tab_hw, text=L.t("Dự đoán chuỗi linh kiện + tự fallback"))
         f.pack(fill="x", padx=8, pady=8)
-        ttk.Label(f, text="Băng:").grid(row=0, column=0, padx=4, pady=4)
+        ttk.Label(f, text=L.t("Băng:")).grid(row=0, column=0, padx=4, pady=4)
         self.hw_band = ttk.Combobox(f, values=["423", "1420"], width=6)
         self.hw_band.set("423")
         self.hw_band.grid(row=0, column=1, padx=4)
-        ttk.Label(f, text="Mục đích:").grid(row=0, column=2, padx=4)
+        ttk.Label(f, text=L.t("Mục đích:")).grid(row=0, column=2, padx=4)
         self.hw_goal = ttk.Combobox(f, values=["pulsar", "hi", "unattended"],
                                     width=12)
         self.hw_goal.set("pulsar")
         self.hw_goal.grid(row=0, column=3, padx=4)
-        ttk.Button(f, text="Phát hiện chuỗi", command=self.hw_detect).grid(
+        ttk.Button(f, text=L.t("Phát hiện chuỗi"), command=self.hw_detect).grid(
             row=0, column=4, padx=8)
-        ttk.Button(f, text="Tự kiểm tra công thức", command=self.hw_selfcheck).grid(
+        ttk.Button(f, text=L.t("Tự kiểm tra công thức"), command=self.hw_selfcheck).grid(
             row=0, column=5, padx=4)
 
-        lf = ttk.LabelFrame(self.tab_hw, text="Kết quả")
+        lf = ttk.LabelFrame(self.tab_hw, text=L.t("Kết quả"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.hw_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                               state="disabled")
@@ -584,24 +593,24 @@ class App:
 
     # ---- TAB 5: kiểm chứng
     def _build_check_tab(self):
-        f = ttk.LabelFrame(self.tab_chk, text="Kiểm chứng máy móc (chạy trước khi tin kết quả)")
+        f = ttk.LabelFrame(self.tab_chk, text=L.t("Kiểm chứng máy móc (chạy trước khi tin kết quả)"))
         f.pack(fill="x", padx=8, pady=8)
-        self.btn_self = ttk.Button(f, text="▶ Chạy selftest nhanh (21 test)",
+        self.btn_self = ttk.Button(f, text=L.t("▶ Chạy selftest nhanh (21 test)"),
                                    command=self.run_selftest)
         self.btn_self.pack(side="left", padx=6, pady=6)
-        ttk.Button(f, text="Pipeline mô phỏng (nhanh)",
+        ttk.Button(f, text=L.t("Pipeline mô phỏng (nhanh)"),
                    command=self.run_pipeline_quick).pack(side="left", padx=6)
-        ttk.Button(f, text="Tự kiểm tra trình ghi (mock)",
+        ttk.Button(f, text=L.t("Tự kiểm tra trình ghi (mock)"),
                    command=self.run_recorder_selftest).pack(side="left", padx=6)
-        ttk.Button(f, text="▶ Corpus dữ liệu XẤU (data/stress)",
+        ttk.Button(f, text=L.t("▶ Corpus dữ liệu XẤU (data/stress)"),
                    command=self.run_stress).pack(side="left", padx=6)
-        ttk.Button(f, text="Mở thư mục kết quả",
+        ttk.Button(f, text=L.t("Mở thư mục kết quả"),
                    command=lambda: self.open_dir(RESULTS_DIR)).pack(side="left", padx=6)
-        ttk.Button(f, text="Mở tài liệu docs",
+        ttk.Button(f, text=L.t("Mở tài liệu docs"),
                    command=lambda: self.open_dir(os.path.join(ROOT_DIR, "docs"))
                    ).pack(side="left", padx=6)
 
-        lf = ttk.LabelFrame(self.tab_chk, text="Kết quả kiểm chứng")
+        lf = ttk.LabelFrame(self.tab_chk, text=L.t("Kết quả kiểm chứng"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
         self.chk_out = tk.Text(lf, wrap="none", font=("Consolas", 9),
                                state="disabled")
@@ -743,13 +752,13 @@ class App:
             text, col = "🟡 Bắt buộc MÔ PHỎNG — dữ liệu không phải thu thật", "#b36b00"
         elif probe["found"]:
             tun = f" ({probe['tuner']})" if probe.get("tuner") else ""
-            text = f"🟢 {probe['name']}{tun}: đã kết nối"
+            text = L.t("🟢") + f" {probe['name']}{tun}: " + L.t("đã kết nối")
             col = "#1a7f37"
         elif mode == "real":
-            text = f"🔴 KHÔNG có SDR — chế độ bắt buộc thật sẽ BÁO LỖI"
+            text = L.t("🔴 KHÔNG có SDR — chế độ bắt buộc thật sẽ BÁO LỖI")
             col = "#c62828"
         else:
-            text = "🟡 Tự động → MÔ PHỎNG (không thấy SDR)"
+            text = L.t("🟡 Tự động → MÔ PHỎNG (không thấy SDR)")
             col = "#b36b00"
         try:
             self.rec_hw_label.configure(text=text, foreground=col)
@@ -842,6 +851,41 @@ class App:
             pass
         self.log(f"Đã áp dụng nơi lưu: dữ liệu → {new_data}", "ok")
         self.log(f"                        kết quả → {new_res}", "ok")
+
+    def on_lang_change(self, _evt=None) -> None:
+        """Đổi ngôn ngữ: lưu vào settings.json, hỏi khởi động lại để áp dụng."""
+        name = self.lang_box.get()
+        code = next((k for k, v in L.LANG_NAMES.items() if v == name), "vi")
+        if code == L.current():
+            return
+        L.set_lang(code)
+        vi = code == "vi"
+        title = "Đổi ngôn ngữ" if vi else "Language changed"
+        _nl = chr(10)
+        msg = (("Đã lưu. Cần khởi động lại để áp dụng toàn bộ giao diện." + _nl
+                + "Khởi động lại ngay?") if vi else
+               ("Saved. A restart is required to apply it to the whole interface."
+                + _nl + "Restart now?"))
+        if messagebox.askyesno(title, msg):
+            self.restart_app()
+
+    def restart_app(self) -> None:
+        """Khởi động lại chính ứng dụng (giữ nguyên tham số dòng lệnh)."""
+        import subprocess
+        import sys as _sys
+        try:
+            if FROZEN:
+                subprocess.Popen([_sys.executable] + _sys.argv[1:])
+            else:
+                subprocess.Popen([_sys.executable, os.path.abspath(__file__)]
+                                 + _sys.argv[1:])
+        except Exception as exc:                 # noqa: BLE001
+            self.log(f"Không khởi động lại được: {exc}", "err")
+            return
+        try:
+            self.root.destroy()
+        except Exception:                        # noqa: BLE001
+            pass
 
     def start_recording(self):
         target_name = self.rec_target.get().strip()
@@ -1213,6 +1257,15 @@ def selfcheck() -> int:
     except Exception as e:
         chk("thư mục data/ và results/ tồn tại và ghi được", False, repr(e))
 
+    # ---- ĐA NGÔN NGỮ
+    try:
+        _bad = L.self_check()
+        _cov = L.coverage()
+        chk("đa ngôn ngữ (vi/en): dịch + fallback + settings.json", not _bad,
+            f"{_cov['n_translated']} chuỗi đã dịch" + ("; " + "; ".join(_bad) if _bad else ""))
+    except Exception as e:
+        chk("đa ngôn ngữ (vi/en): dịch + fallback + settings.json", False, repr(e))
+
     # ---- CHÍNH SÁCH I/O: data/ chỉ đọc, sản phẩm vào results/<tên>
     try:
         import psr_paths as _paths
@@ -1336,6 +1389,12 @@ def selfcheck() -> int:
 def main():
     if "--selfcheck" in sys.argv:
         sys.exit(selfcheck())
+    if "--lang" in sys.argv:
+        try:
+            code = sys.argv[sys.argv.index("--lang") + 1]
+            L.set_lang(code)
+        except Exception:
+            pass
     root = tk.Tk()
     App(root)
     root.mainloop()

@@ -71,7 +71,7 @@ Mục tiêu của lần nâng cấp:
 | L3 | `psr_dm.py`, `psr_pulse.py`, `psr_period.py`, `psr_veto.py` (mới) | kế hoạch DM 2 tầng, dò xung đơn, dò chu kỳ, veto | ghi sản phẩm |
 | L4 | `psr_products.py` (mới) | report + hình + provenance + `export-pac` | DSP |
 | L5 | `pulsarobs.py` (mới) | CLI, in JSON | logic khoa học |
-| L6 | `gui_app.py` | form → CLI → hiển thị | DSP |
+| L6 | `gui_app.py`, `psr_i18n.py` | form → CLI → hiển thị; **đa ngôn ngữ** vi/en (`settings.json` hoặc `PSR_LANG`) | DSP |
 
 `psr_detect.py` giữ lại làm **wrapper tương thích** (API cũ `detect()` → gọi L3+L4),
 để test và GUI hiện tại không vỡ trong lúc chuyển đổi.

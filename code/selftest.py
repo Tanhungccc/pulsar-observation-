@@ -201,6 +201,16 @@ def test_ingest_guard():
           bool(m.get("input_sha256")) and m.get("schema_version") == 3,
           "sha=%s" % str(m.get("input_sha256"))[:10])
 
+def test_i18n():
+    """L6: đa ngôn ngữ — dịch, fallback, lưu/đọc settings."""
+    import psr_i18n as L
+    bad = L.self_check()
+    check("i18n: dịch vi↔en + fallback giữ nguyên chuỗi lạ", not bad, "; ".join(bad))
+    cov = L.coverage()
+    check("i18n: đã dịch đủ bộ nhãn giao diện (≥ 60 chuỗi)",
+          cov["n_translated"] >= 60, f"{cov['n_translated']} chuỗi")
+
+
 def test_targets():
     a = alt_max(7.9266)      # B0950+08
     check("alt_max(B0950+08) ≈ 87.1°", abs(a - 87.1) < 0.2, f"{a:.1f}°")
@@ -325,6 +335,7 @@ if __name__ == "__main__":
     test_subband_dm()
     test_constants()
     test_ingest_guard()
+    test_i18n()
     test_site_profile()
     test_targets()
     test_zero_dm_keeps_pulse()
