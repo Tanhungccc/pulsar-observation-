@@ -63,6 +63,45 @@ def text_of(widget) -> str:
     return widget.get("1.0", "end").strip()
 
 
+def _check_save_dirs(app, root):
+    """D0b: chọn nơi lưu (settings.json) — chạy CUỐI để không ảnh hưởng test khác."""
+    import json as _json
+    import psr_paths as _paths
+    import psr_detect
+    print(chr(10) + "=== D0b. NƠI LƯU (chọn thư mục, settings.json) ===")
+    _old_d, _old_r = _paths.data_dir(), _paths.results_dir()
+    td = os.path.join(gui_app.RESULTS_DIR, "_gio_test_data")
+    tr = os.path.join(gui_app.RESULTS_DIR, "_gio_test_res")
+    try:
+        chk("GUI có ô chọn nơi lưu + nút Áp dụng",
+            set(app.dir_vars) == {"data_dir", "results_dir"},
+            str(list(app.dir_vars)))
+        app.dir_vars["data_dir"].set(td)
+        app.dir_vars["results_dir"].set(tr)
+        app.apply_dirs()
+        root.update()
+        _st = _json.load(open(_paths.settings_path(), encoding="utf-8"))
+        chk("áp dụng nơi lưu → ghi settings.json",
+            _st.get("results_dir") == os.path.abspath(tr), _paths.settings_path())
+        chk("áp dụng ngay vào module phân tích (psr_detect.RESULTS)",
+            os.path.abspath(psr_detect.RESULTS) == os.path.abspath(tr),
+            psr_detect.RESULTS)
+        _m = psr_detect.detect(os.path.join(_old_d, "stress", "28.fil"))
+        chk("kết quả ghi đúng thư mục mới",
+            os.path.abspath(_m.get("out_dir", "")).startswith(os.path.abspath(tr)),
+            _m.get("out_dir"))
+    finally:
+        app.dir_vars["data_dir"].set(_old_d)
+        app.dir_vars["results_dir"].set(_old_r)
+        try:
+            app.apply_dirs()
+            root.update()
+        except Exception:
+            pass
+        chk("khôi phục được nơi lưu ban đầu",
+            os.path.abspath(_paths.results_dir()) == os.path.abspath(_old_r),
+            _paths.results_dir())
+
 def main(fast=False):
     root = tk.Tk()
     app = gui_app.App(root)
@@ -223,10 +262,19 @@ def main(fast=False):
         app.analyze_last_recorded()
         chk("nút 'Phân tích file vừa ghi' chạy xong", pump(root, app, 240),
             "busy=False")
-        stem = os.path.splitext(os.path.basename(app.det_file.get()))[0]
-        d = os.path.join(gui_app.RESULTS_DIR, stem)
-        chk("phân tích tạo thư mục results/<tên file ghi>",
-            os.path.isdir(d), d)
+        # kết quả lưu vào results/<ngày_giờ>/ — tìm JSON vừa được ghi (mtime)
+        import re as _re
+        _cands = []
+        for _d in os.listdir(gui_app.RESULTS_DIR):
+            _j = os.path.join(gui_app.RESULTS_DIR, _d, "detect_metrics.json")
+            if os.path.exists(_j):
+                _cands.append((os.path.getmtime(_j), _d))
+        _cands.sort(reverse=True)
+        _name = _cands[0][1] if _cands else ""
+        chk("phân tích tạo thư mục results/<ngày_giờ>",
+            bool(_re.match(r"^\d{8}_\d{6}", _name)) and
+            time.time() - (_cands[0][0] if _cands else 0) < 600,
+            _name)
 
     # dừng giữa chừng
     app.rec_hours.set(1.0)
@@ -311,6 +359,7 @@ def main(fast=False):
         os.path.normpath(gui_app.ROOT_DIR))]
     chk("mọi file mở ra đều nằm trong thư mục app", not stray, str(stray))
 
+    _check_save_dirs(app, root)
     root.destroy()
     n = sum(R)
     print(f"\n{n}/{len(R)} kiểm tra PASS")

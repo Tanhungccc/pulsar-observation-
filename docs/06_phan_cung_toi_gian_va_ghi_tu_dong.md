@@ -227,9 +227,9 @@ Ngoài ra còn một lỗi **thiết kế kiểm chứng**: ở `B = 2.4 MHz` đ
 
 | Nhóm | Nội dung |
 |---|---|
-| Đường dẫn | `data/`, `results/` nằm trong thư mục app; file dữ liệu thật tồn tại; mỗi lần chạy một thư mục `results/<tên dữ liệu>/` hoặc `<ngày>/` |
+| Đường dẫn | `data/`, `results/` nằm trong thư mục app; file dữ liệu thật tồn tại; mỗi lần chạy một thư mục `results/<YYYYMMDD_HHMMSS>/` (ngày + giờ lưu) |
 | Tab 2 | mở hộp chọn file đúng `data/`, chạy phát hiện, ra đủ 4 file, dropdown ảnh dạng `thư-mục/tên`, vẽ được vào khung, 3 nút "Mở …" mở đúng đường dẫn |
-| Tab 1 | ghi ra `data/<ngày>/*.fil` + `.json` (có `roundtrip_ok`, gap log), "Phân tích file vừa ghi" tạo `results/<tên file ghi>/`, nút **Dừng** đóng file an toàn |
+| Tab 1 | ghi ra `data/<ngày>/*.fil` + `.json` (có `roundtrip_ok`, gap log), "Phân tích file vừa ghi" tạo `results/<ngày>_<giờ>/`, nút **Dừng** đóng file an toàn |
 | Tab 3 | cả 5 nút đổ bảng vào đúng panel của tab (959 / 846 / 5025 / 1137 / 1470 ký tự) |
 | Tab 4 | chuỗi linh kiện ra `T_sys`/`SEFD`, tự kiểm tra công thức OK |
 | Tab 5 | selftest 21/21 trong GUI, pipeline mô phỏng, test trình ghi |

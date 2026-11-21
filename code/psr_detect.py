@@ -243,12 +243,20 @@ def rebin_channels(dyn, rb: int, block: int = 512) -> np.ndarray:
 def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
            dm_max: float = 60.0, dm_step: float = 0.25,
            pulse_thresh: float = 8.0, rebin: int = 8,
-           nchan_iq: int = 256, navg_iq: int = 16) -> dict:
+           nchan_iq: int = 256, navg_iq: int = 16,
+           out_name: str | None = None) -> dict:
     os.makedirs(RESULTS, exist_ok=True)
     # GOM sản phẩm của MỘT lần chạy vào MỘT thư mục: tên theo file dữ liệu
     # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
-    stem = safe_stem(os.path.splitext(os.path.basename(path))[0])
+    # TÊN THƯ MỤC KẾT QUẢ = NGÀY + GIỜ lưu (mỗi lần chạy là một bản ghi riêng,
+    # không ghi đè kết quả cũ). Vẫn có thể ép tên qua out_name (dùng cho test).
+    base = out_name or time.strftime("%Y%m%d_%H%M%S")
+    stem = safe_stem(base)
     out_dir = os.path.join(RESULTS, stem)
+    k = 2
+    while os.path.exists(os.path.join(out_dir, "detect_metrics.json")):
+        out_dir = os.path.join(RESULTS, f"{stem}_{k}")
+        k += 1
     paths.assert_write_allowed(out_dir)             # Q4: data/ là chỉ đọc
     m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {},
                "schema_version": 3,

@@ -383,7 +383,7 @@ Ba mức: `xác nhận` · `nghi vấn` · `loại` (kèm lý do). Không bao gi
 ## 10. Sản phẩm & lưu trữ
 
 ```
-results/<stem>/
+results/<YYYYMMDD_HHMMSS>/          ← NGÀY + GIỜ lưu (mỗi lần chạy một bản ghi)
 ├── report.json          (schema v3, số đã tính)
 ├── report.txt           (bản đọc được, sinh từ JSON)
 ├── fig1_overview.png    waterfall gốc + đã khử tán sắc
@@ -396,6 +396,9 @@ results/<stem>/
 - `--export-pac`: zip gồm hình chẩn đoán, đoạn `.fil` cắt gọn quanh ứng viên
   (vài chục MB), `candidate_summary.json` (J2000, MJD, P_topo, DM, provenance),
   **kèm cảnh báo** "chưa hiệu chỉnh phân cực / flux tuyệt đối".
+- **Nơi lưu chọn được**: GUI có ô "Nơi lưu dữ liệu / Kết quả"; lưu vào
+  `settings.json` cạnh app (ưu tiên: biến môi trường `PSR_DATA_DIR` /
+  `PSR_RESULTS_DIR` > `settings.json` > mặc định `<app>/data`, `<app>/results`).
 - Lưu trữ: 4 GB/đêm → ~1.4 TB/năm. Chính sách: giữ sản phẩm + `replay` (nén),
   xoá raw sau N ngày (mặc định 30) trừ khi được đánh dấu `keep`; kèm `sha256` +
   `manifest.json` để biết file nào đã xử lý.

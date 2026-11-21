@@ -291,9 +291,13 @@ def s3_outputs(fx):
             before.add(os.path.join(base, f))
 
     m = quiet(psr_detect.detect, fx["fil8"], dm_ref=None, p_ref=None)
-    stem = "ok8"
-    outd = os.path.join(psr_detect.RESULTS, stem)
-    chk("kết quả gom đúng 1 thư mục theo tên dữ liệu", os.path.isdir(outd), outd)
+    outd = m.get("out_dir", "")
+    chk("kết quả gom đúng 1 thư mục con của results/", os.path.isdir(outd),
+        os.path.basename(outd))
+    chk("tên thư mục kết quả = ngày_giờ (YYYYMMDD_HHMMSS)",
+        bool(outd) and len(os.path.basename(outd).split("_")[0]) == 8
+        and len(os.path.basename(outd).split("_")[1][:6]) == 6,
+        os.path.basename(outd))
     need = ["fig1_overview.png", "fig2_detection.png",
             "detect_metrics.json", "detect_report.txt"]
     have = [f for f in need if os.path.exists(os.path.join(outd, f))]
@@ -320,8 +324,8 @@ def s3_outputs(fx):
     quiet(psr_detect.detect, fx["fil8"])
     n_dir_after = len([d for d in os.listdir(psr_detect.RESULTS)
                        if os.path.isdir(os.path.join(psr_detect.RESULTS, d))])
-    chk("chạy lại KHÔNG sinh thư mục rác", n_dir_before == n_dir_after,
-        f"{n_dir_before} → {n_dir_after}")
+    chk("chạy lại sinh ĐÚNG 1 bản ghi mới (không rải rác)",
+        n_dir_after - n_dir_before == 1, f"{n_dir_before} → {n_dir_after}")
 
     # tên có dấu cách + unicode + dài
     for name, label in (("có dấu cách.fil", "dấu cách"),
@@ -330,8 +334,7 @@ def s3_outputs(fx):
         p = os.path.join(TMP, name)
         shutil.copy(fx["fil8"], p)
         mm = quiet(psr_detect.detect, p)
-        d = os.path.join(psr_detect.RESULTS,
-                         psr_detect.safe_stem(os.path.splitext(name)[0]))
+        d = mm.get("out_dir", "")
         chk(f"tên file {label}: chạy + xuất đúng thư mục",
             mm.get("status") == "ok" and os.path.isdir(d),
             f"status={mm.get('status')}, thư mục {os.path.basename(d)[:40]}")
@@ -341,7 +344,7 @@ def s3_outputs(fx):
 
     # input hỏng → báo cáo chẩn đoán, không có ảnh giả
     m = quiet(psr_detect.detect, fx["zero"])
-    d = os.path.join(psr_detect.RESULTS, "zero")
+    d = m.get("out_dir", "")
     chk("input 0 byte → có report JSON + KHÔNG có ảnh giả",
         os.path.exists(os.path.join(d, "detect_metrics.json"))
         and not os.path.exists(os.path.join(d, "fig2_detection.png")),

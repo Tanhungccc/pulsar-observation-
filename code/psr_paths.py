@@ -14,6 +14,7 @@ Mọi module lấy đường dẫn từ đây — không tự tính `os.path.dir
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -26,14 +27,75 @@ def app_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def settings_path() -> str:
+    return os.environ.get("PSR_SETTINGS") or os.path.join(app_dir(), "settings.json")
+
+
+def load_settings() -> dict:
+    """Đọc settings.json (nơi lưu do người dùng chọn). Hỏng/thiếu → {}."""
+    p = settings_path()
+    try:
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except Exception:                            # noqa: BLE001
+        return {}
+
+
+def save_settings(d: dict) -> str:
+    """Ghi settings.json NGUYÊN TỬ (mất điện không cụt file)."""
+    p = settings_path()
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh, ensure_ascii=False, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, p)
+    return p
+
+
+def set_data_dir(path: str) -> str:
+    """Đổi nơi GHI dữ liệu thô (phải ghi được). Trả về đường dẫn tuyệt đối."""
+    p = os.path.abspath(path)
+    os.makedirs(p, exist_ok=True)
+    if not os.access(p, os.W_OK):
+        raise PermissionError(f"không ghi được vào {p}")
+    d = load_settings()
+    d["data_dir"] = p
+    save_settings(d)
+    return p
+
+
+def set_results_dir(path: str) -> str:
+    """Đổi nơi GHI sản phẩm phân tích."""
+    p = os.path.abspath(path)
+    os.makedirs(p, exist_ok=True)
+    if not os.access(p, os.W_OK):
+        raise PermissionError(f"không ghi được vào {p}")
+    d = load_settings()
+    d["results_dir"] = p
+    save_settings(d)
+    return p
+
+
 def data_dir() -> str:
-    """Dữ liệu thô — CHỈ ĐỌC (trình ghi tạo file mới ở đây)."""
-    return os.environ.get("PSR_DATA_DIR") or os.path.join(app_dir(), "data")
+    """Dữ liệu thô — CHỈ ĐỌC (trình ghi tạo file mới ở đây).
+
+    Ưu tiên: PSR_DATA_DIR (env) > settings.json > <app>/data
+    """
+    return (os.environ.get("PSR_DATA_DIR")
+            or load_settings().get("data_dir")
+            or os.path.join(app_dir(), "data"))
 
 
 def results_dir() -> str:
-    """Mọi sản phẩm phân tích."""
-    return os.environ.get("PSR_RESULTS_DIR") or os.path.join(app_dir(), "results")
+    """Mọi sản phẩm phân tích.
+
+    Ưu tiên: PSR_RESULTS_DIR (env) > settings.json > <app>/results
+    """
+    return (os.environ.get("PSR_RESULTS_DIR")
+            or load_settings().get("results_dir")
+            or os.path.join(app_dir(), "results"))
 
 
 def config_dir() -> str:
@@ -91,9 +153,16 @@ def assert_write_allowed(path: str) -> None:
 
 def describe() -> dict:
     """Mô tả chính sách I/O (đưa vào report/selfcheck)."""
+    st = load_settings()
     return dict(app=app_dir(), data=data_dir(), results=results_dir(),
                 configs=config_dir(), temp=temp_dir(),
-                data_read_only=True)
+                data_read_only=True,
+                data_from=("env" if os.environ.get("PSR_DATA_DIR")
+                           else "settings" if st.get("data_dir") else "default"),
+                results_from=("env" if os.environ.get("PSR_RESULTS_DIR")
+                              else "settings" if st.get("results_dir")
+                              else "default"),
+                settings_file=settings_path())
 
 
 def self_check() -> list:

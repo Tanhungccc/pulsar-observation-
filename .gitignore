@@ -39,3 +39,6 @@ build_log.txt
 
 # danh mục mục tiêu người dùng tự thêm (dữ liệu người dùng)
 targets_user.json
+
+# cấu hình người dùng (nơi lưu)
+settings.json

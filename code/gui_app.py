@@ -432,6 +432,30 @@ class App:
 
         self.refresh_target_list(select="B0950+08")
         self.rec_source.set(SOURCE_MODES["auto"])
+        # ---- NƠI LƯU (chọn được, lưu vào settings.json)
+        sf = ttk.LabelFrame(f, text="Nơi lưu dữ liệu (có thể chọn ổ khác, ví dụ SSD ngoài)")
+        sf.grid(row=3, column=0, columnspan=7, sticky="we", padx=4, pady=(8, 4))
+        self.dir_vars = {}
+        for r, (key, label) in enumerate((("data_dir", "Dữ liệu thô:"),
+                                          ("results_dir", "Kết quả:"))):
+            ttk.Label(sf, text=label, width=12).grid(row=r, column=0, sticky="w",
+                                                     padx=(6, 2), pady=3)
+            var = tk.StringVar(value=self._dir_value(key))
+            ent = ttk.Entry(sf, textvariable=var, width=64)
+            ent.grid(row=r, column=1, sticky="we", padx=4, pady=3)
+            ttk.Button(sf, text="Chọn…", width=8,
+                       command=lambda k=key, v=var: self.choose_dir(k, v)).grid(
+                row=r, column=2, padx=4)
+            ttk.Button(sf, text="Mở", width=5,
+                       command=lambda k=key: self.open_dir(self._dir_value(k))).grid(
+                row=r, column=3, padx=(0, 6))
+            self.dir_vars[key] = var
+        ttk.Button(sf, text="Áp dụng", width=10,
+                   command=self.apply_dirs).grid(row=0, column=4, rowspan=2, padx=6)
+        ttk.Label(sf, text="(ghi vào settings.json cạnh app; có hiệu lực ngay, không cần khởi động lại)",
+                  foreground="#5f5f5f").grid(row=2, column=0, columnspan=5,
+                                             sticky="w", padx=6, pady=(2, 4))
+
         self.root.after_idle(lambda: self.refresh_hw_status())
 
         info = ttk.LabelFrame(self.tab_rec, text="Cách dùng")
@@ -783,6 +807,41 @@ class App:
             TargetDialog(self.root, self, edit_name=name)
             return psr_targets.find_target(name)   # có thể None nếu chưa lưu
         return dict(name=name, custom=True, ra=None, dec=None)
+
+    # ---- nơi lưu: chọn, áp dụng, phản ánh vào mọi module
+    def _dir_value(self, key: str) -> str:
+        import psr_paths as _p
+        return _p.data_dir() if key == "data_dir" else _p.results_dir()
+
+    def choose_dir(self, key: str, var) -> None:
+        d = filedialog.askdirectory(title="Chọn thư mục", initialdir=var.get() or APP_DIR)
+        if d:
+            var.set(os.path.normpath(d))
+
+    def apply_dirs(self) -> None:
+        """Ghi nơi lưu mới vào settings.json và áp dụng NGAY cho mọi module."""
+        import psr_paths as _p
+        try:
+            new_data = _p.set_data_dir(self.dir_vars["data_dir"].get())
+            new_res = _p.set_results_dir(self.dir_vars["results_dir"].get())
+        except Exception as exc:
+            messagebox.showerror("Không đổi được thư mục", str(exc))
+            self.log(f"Lỗi đổi thư mục: {exc}", "err")
+            return
+        # áp dụng ngay trong tiến trình này
+        globals()["DATA_DIR"] = new_data
+        globals()["RESULTS_DIR"] = new_res
+        psr_detect.RESULTS = new_res
+        psr_detect.DATA = new_data
+        record_unattended.DATA = new_data
+        self.dir_vars["data_dir"].set(new_data)
+        self.dir_vars["results_dir"].set(new_res)
+        try:
+            self._refresh_figure_list()
+        except Exception:
+            pass
+        self.log(f"Đã áp dụng nơi lưu: dữ liệu → {new_data}", "ok")
+        self.log(f"                        kết quả → {new_res}", "ok")
 
     def start_recording(self):
         target_name = self.rec_target.get().strip()
@@ -1228,10 +1287,10 @@ def selfcheck() -> int:
         psr_detect.RESULTS = tmp
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                psr_detect.detect(fil)
+                _m = psr_detect.detect(fil)
         finally:
             psr_detect.RESULTS = old
-        outd = os.path.join(tmp, "acc")
+        outd = _m.get("out_dir", "")          # <ngày>_<giờ> do detect đặt
         need = ["fig1_overview.png", "fig2_detection.png",
                 "detect_metrics.json", "detect_report.txt"]
         got = [f for f in need if os.path.exists(os.path.join(outd, f))]

@@ -208,6 +208,8 @@ Rút ra từ chính các lỗi đã mắc trong quá trình xây pipeline:
 
 ## 6. Vận hành & việc tiếp theo
 
+**Nơi lưu**: chọn được trên GUI (ô *Nơi lưu dữ liệu*) — lưu vào `settings.json`; kết quả vào `results/<ngày>_<giờ>/`.
+
 **Ghi tự động 4–5 giờ không canh chừng** (xem `docs/06` §6):
 
 ```bash
