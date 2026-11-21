@@ -222,6 +222,29 @@ def test_dm_max_auto():
           okall, ", ".join(detail))
 
 
+def test_blind_period():
+    """M3: dò chu kỳ mù (FFT + sàng hài + ưu tiên chu kỳ cơ bản)."""
+    import psr_sim, psr_core, psr_period
+    dyn, freqs, meta = psr_sim.simulate(dm=3.0, period_s=0.100, w50_ms=6.0,
+                                        nchan=64, bw_mhz=32.0, tsamp_s=256e-6,
+                                        t_total_s=120.0, snr_target=40.0,
+                                        rfi=False, seed=5)
+    s, _ = psr_core.dedisperse(dyn, freqs, 3.0, 256e-6)
+    res = psr_period.blind_period_search(s, 256e-6, top=8, threshold=8.0)
+    best = res.get("best") or {}
+    p_got = float(best.get("p_s") or 0.0)
+    err = abs(p_got - 0.100) / 0.100 if p_got else 1.0
+    check("M3 dò chu kỳ mù tìm đúng P (sai số < 0.1 %)",
+          err < 1e-3 and "best" in res,
+          f"P = {p_got*1e3:.3f} ms (thật 100 ms), SNR {best.get('snr')}")
+    check("M3 ưu tiên chu kỳ CƠ BẢN (không báo P/2 hay 2P)",
+          p_got and abs(p_got / 0.100 - 1.0) < 1e-3,
+          f"tỷ số P/P_true = {p_got / 0.100:.6f}" if p_got else "—")
+    check("M3 loại hài: số ứng viên sau sàng < trước sàng",
+          res.get("n_after_sift", 99) <= res.get("n_fft_candidates", 0),
+          f"{res.get('n_fft_candidates')} → {res.get('n_after_sift')}")
+
+
 def test_i18n():
     """L6: đa ngôn ngữ — dịch, fallback, lưu/đọc settings."""
     import psr_i18n as L
@@ -357,6 +380,7 @@ if __name__ == "__main__":
     test_constants()
     test_ingest_guard()
     test_dm_max_auto()
+    test_blind_period()
     test_i18n()
     test_site_profile()
     test_targets()

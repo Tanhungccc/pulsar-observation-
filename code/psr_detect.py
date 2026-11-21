@@ -132,6 +132,7 @@ def read_table_as_dyn(path: str, max_seconds: float | None = None):
     return h, np.ascontiguousarray(data.astype(np.float32).T)
 import psr_plots as pp
 import ingest_guard as guard
+import psr_period as per
 import psr_paths as paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -262,7 +263,9 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
            dm_max: float | None = None, dm_step: float = 0.25,
            pulse_thresh: float = 8.0, rebin: int = 8,
            nchan_iq: int = 256, navg_iq: int = 16,
-           out_name: str | None = None) -> dict:
+           out_name: str | None = None, search_period: bool = False,
+           pmin_s: float = 0.0015, pmax_s: float = 10.0,
+           top_n: int = 10) -> dict:
     os.makedirs(RESULTS, exist_ok=True)
     # GOM sản phẩm của MỘT lần chạy vào MỘT thư mục: tên theo file dữ liệu
     # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
@@ -580,6 +583,28 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         m["stage"]["dm_subband_mean"] = round(float(np.mean(dm_list)), 3)
         m["stage"]["dm_subband_std"] = round(float(np.std(dm_list)), 3)
 
+    # ---------------- M3: DÒ CHU KỲ MÙ (FFT + cộng hài + sàng hài → Top-N)
+    if search_period or p_ref is None:
+        try:
+            print(f"→ M3 dò chu kỳ mù (FFT): P {pmin_s*1e3:.1f}–{pmax_s*1e3:.0f} ms, "
+                  f"top {top_n}")
+            _res = per.blind_period_search(
+                s_dd, tsamp, fmin_hz=1.0 / pmax_s, fmax_hz=1.0 / pmin_s,
+                nharm=4, top=top_n, threshold=pulse_thresh)
+            m["period_search"] = {k: v for k, v in _res.items()
+                                  if k not in ("profile",)}
+            if _res.get("best"):
+                _b = _res["best"]
+                print(f"   ✓ ứng viên mạnh nhất: P = {_b['p_s']*1e3:.3f} ms "
+                      f"(SNR {_b['snr']:.1f} ≥ {pulse_thresh:.0f})")
+                for _c in _res["candidates"][:5]:
+                    print(f"      P={_c['p_s']*1e3:9.3f} ms  SNR={_c['snr']:6.1f}")
+            else:
+                print(f"   (không có ứng viên vượt {pulse_thresh:.0f}σ sau khi sàng hài)")
+        except Exception as _e:                   # noqa: BLE001
+            m["period_search"] = dict(searched=False, error=repr(_e))
+            print(f"   ⚠ M3 lỗi: {_e!r}")
+
     # ---------------- V2: kiểm chứng ĐẦU RA
     checks = []
     if dm_ref is not None:
@@ -669,6 +694,17 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         checks.append(dict(name="fold tại P catalogue", ok=True,
                            detail=f"bỏ qua: file chỉ {h['t_s']:.1f} s "
                                   f"< 5×P — dữ liệu thiết kế cho xung đơn"))
+    _ps = m.get("period_search") or {}
+    if _ps.get("searched"):
+        _b = _ps.get("best")
+        checks.append(dict(
+            name="dò chu kỳ mù (FFT + sàng hài)",
+            ok=True,
+            detail=(f"P = {_b['p_s']*1e3:.3f} ms, SNR {_b['snr']:.1f} "
+                    f"(Top-N: {len(_ps.get('candidates') or [])} ứng viên)"
+                    if _b else
+                    f"không có ứng viên > {_ps.get('threshold', 8):.0f}σ "
+                    f"({len(_ps.get('candidates') or [])} ứng viên xét)")))
     if m["stage"].get("zero_dm_dominated"):
         checks.append(dict(name="không bị RFI zero-DM chiếm ưu thế", ok=False,
                            detail=f"SNR(DM=0) = {m['stage']['snr_zero_dm']}, "
@@ -803,6 +839,26 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     _savefig(fig, f2); plt.close(fig)
 
     m["files"] = [os.path.basename(f1), os.path.basename(f2)]
+    # ---- M3: hình dò chu kỳ mù (nếu có ứng viên)
+    try:
+        _ps = m.get("period_search") or {}
+        if _ps.get("best"):
+            import psr_period as _per
+            _b = _ps["best"]
+            _prof, _ = fold(s_dd, tsamp, float(_b["p_s"]), nbins=256)
+            _ps2 = dict(_ps)
+            _ps2["profile"] = _prof
+            _figp, _axp = plt.subplots(1, 2, figsize=(11.0, 3.4))
+            _per.plot_period_search(_ps2, ax=_axp)
+            _figp.tight_layout()
+            pp.finalize(_figp)
+            _f3 = os.path.join(out_dir, "fig3_period.png")
+            _savefig(_figp, _f3)
+            plt.close(_figp)
+            m["files"].append(os.path.basename(_f3))
+            print(f"→ hình dò chu kỳ: {os.path.basename(_f3)}")
+    except Exception as _e:                        # noqa: BLE001
+        print(f"   ⚠ không vẽ được hình chu kỳ: {_e!r}")
     guard.atomic_write_json(os.path.join(out_dir, "detect_metrics.json"),
                             _jsonify(m))       # Q2: ghi nguyên tử
 
@@ -853,7 +909,14 @@ if __name__ == "__main__":
                     help="mặc định: max(100, 1.5×dm_ref)")
     ap.add_argument("--dm-step", type=float, default=0.25)
     ap.add_argument("--thresh", type=float, default=8.0)
+    ap.add_argument("--search-period", action="store_true",
+                    help="luôn dò chu kỳ mù (mặc định chỉ khi không có P)")
+    ap.add_argument("--pmin-ms", type=float, default=1.5)
+    ap.add_argument("--pmax-s", type=float, default=10.0)
+    ap.add_argument("--top-n", type=int, default=10)
     a = ap.parse_args()
     ensure_utf8_stdout()
     detect(a.file, dm_ref=a.dm_ref, p_ref=a.p, dm_max=a.dm_max,
+           search_period=a.search_period, pmin_s=a.pmin_ms / 1e3,
+           pmax_s=a.pmax_s, top_n=a.top_n,
            dm_step=a.dm_step, pulse_thresh=a.thresh)

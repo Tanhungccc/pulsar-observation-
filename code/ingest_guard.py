@@ -472,9 +472,17 @@ def spectral_kurtosis(power) -> dict:
         sk = (M + 1) / (M - 1) * (M * s2 / (s1 ** 2) - 1)
     sk = np.nan_to_num(sk, nan=1.0)
     sigma = math.sqrt(4.0 / M)
-    bad = np.where(np.abs(sk - 1.0) > SK_SIGMA * sigma)[0]
-    return dict(sigma=round(sigma, 5), bad_channels=bad.tolist()[:50],
-                n_bad=int(bad.size), note="")
+    # Dữ liệu thật (tổng công suất đã tích phân, gain trôi, RFI nền) làm SK lệch
+    # khỏi 1 một cách HỆ THỐNG → so với 1 sẽ đánh dấu gần như mọi kênh (đã gặp:
+    # 99,6 %). Vì vậy dò **kênh dị biệt** so với trung vị của chính file:
+    #   thr = max(5·MAD(SK), 0,2)  → bắt kênh bất thường, không bắt cả nền.
+    med = float(np.median(sk))
+    mad = 1.4826 * float(np.median(np.abs(sk - med))) + 1e-9
+    thr = max(5.0 * mad, 0.2)
+    bad = np.where(np.abs(sk - med) > thr)[0]
+    return dict(sigma=round(sigma, 5), sk_median=round(med, 3),
+                sk_mad=round(mad, 3), threshold=round(thr, 3),
+                bad_channels=bad.tolist()[:50], n_bad=int(bad.size), note="")
 
 
 def thermal_check(meta: dict, tsys_nominal_k: float | None = None) -> dict:
@@ -593,7 +601,7 @@ def inspect(path: str, meta: dict | None = None, sample_rows: int = 2000) -> dic
         if freqs is not None and len(freqs) > 1 and tsamp:
             bw = abs(float(np.max(freqs) - np.min(freqs))) * 1e6
             gate["radiometer"] = radiometer_check(p, bw / len(freqs), tsamp)
-        gate["sk"] = spectral_kurtosis(p)
+        gate["sk"] = spectral_kurtosis(p.T)   # (ntime, nchan)
     rep["steps"]["gatekeeper"] = gate
 
     tags = set(rep["tags"])
@@ -604,8 +612,9 @@ def inspect(path: str, meta: dict | None = None, sample_rows: int = 2000) -> dic
     if gate.get("radiometer", {}).get("tag") == "GAIN_DRIFT":
         tags.add("GAIN_DRIFT")
     _sk = gate.get("sk") or {}
-    if _sk.get("n_bad", 0) and x.ndim == 2 and x.shape[1]:
-        _frac = _sk["n_bad"] / max(1, x.shape[1])
+    _sarr = np.asarray(sample)
+    if _sk.get("n_bad", 0) and _sarr.ndim == 2 and _sarr.shape[0]:
+        _frac = _sk["n_bad"] / max(1, _sarr.shape[0])
         if 0.05 < _frac <= 0.5:
             tags.add("RFI_HEAVY")      # một phần kênh → RFI hẹp băng
         elif _frac > 0.5:
@@ -645,7 +654,7 @@ def analyze_array(dyn, header: dict, meta: dict | None = None,
     if rep["stage"] == "RAW_IQ":
         gate["adc"] = adc_clipping(sample, int(meta.get("adc_bits", 8)))
     if x.ndim == 2 and x.shape[0] > 8:
-        gate["sk"] = spectral_kurtosis(xc)
+        gate["sk"] = spectral_kurtosis(xc.T)   # (ntime, nchan)
         freqs = header.get("freqs_mhz")
         if freqs is not None and len(freqs) > 1 and ts:
             bw = abs(float(np.max(freqs) - np.min(freqs))) * 1e6
@@ -660,8 +669,9 @@ def analyze_array(dyn, header: dict, meta: dict | None = None,
     if gate.get("radiometer", {}).get("tag") == "GAIN_DRIFT":
         tags.add("GAIN_DRIFT")
     _sk = gate.get("sk") or {}
-    if _sk.get("n_bad", 0) and x.ndim == 2 and x.shape[1]:
-        _frac = _sk["n_bad"] / max(1, x.shape[1])
+    _sarr = np.asarray(sample)
+    if _sk.get("n_bad", 0) and _sarr.ndim == 2 and _sarr.shape[0]:
+        _frac = _sk["n_bad"] / max(1, _sarr.shape[0])
         if 0.05 < _frac <= 0.5:
             tags.add("RFI_HEAVY")      # một phần kênh → RFI hẹp băng
         elif _frac > 0.5:
