@@ -20,6 +20,21 @@ from __future__ import annotations
 
 import numpy as np
 
+def _num(v, default=None):
+    """Đọc số từ header FITS, chịu được placeholder '*', 'UNSET', ''."""
+    if v is None:
+        return default
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = str(v).strip()
+    if t in ("", "*", "UNSET", "NONE", "None", "null"):
+        return default
+    try:
+        return float(t)
+    except ValueError:
+        return default
+
+
 _REQUIRED = ("OBSFREQ", "OBSBW", "OBSNCHAN")   # NPOL/TBIN có thể nằm ở SUBINT
 
 
@@ -42,17 +57,17 @@ def read_psrfits(path: str, max_seconds: float | None = None,
             raise ValueError(
                 f"PSRFITS thiếu khoá bắt buộc: {', '.join(missing)} "
                 f"(file có {len(ph)} khoá; đây là file test/hỏng)")
-        nchan = int(ph["OBSNCHAN"])
+        nchan = int(_num(ph.get("OBSNCHAN"), 0) or 0)
         # TBIN có thể ở PRIMARY hoặc ở SUBINT (nhiều file thật đặt ở SUBINT)
         sub_hdrs = [h.header for h in hdus[1:]]
-        tbin = float(ph.get("TBIN", 0.0) or 0.0)
+        tbin = _num(ph.get("TBIN"), 0.0) or 0.0
         if not tbin:
             for sh in sub_hdrs:
                 if sh.get("TBIN"):
-                    tbin = float(sh["TBIN"]); break
-        npol = int(ph.get("NPOL", 0) or 0)
-        f_center = float(ph["OBSFREQ"])
-        bw = float(ph["OBSBW"])                 # có thể âm (đảo thứ tự kênh)
+                    tbin = _num(sh.get("TBIN"), 0.0) or 0.0; break
+        npol = int(_num(ph.get("NPOL"), 0) or 0)
+        f_center = _num(ph.get("OBSFREQ"), 0.0) or 0.0
+        bw = _num(ph.get("OBSBW"), 0.0) or 0.0                 # có thể âm (đảo thứ tự kênh)
         src = str(ph.get("SRC_NAME", "?")).strip()
         if tbin <= 0:
             raise ValueError("TBIN = 0 hoặc thiếu ở cả PRIMARY và SUBINT "
@@ -66,16 +81,28 @@ def read_psrfits(path: str, max_seconds: float | None = None,
                 and h.header.get("NAXIS2", 0) > 0
                 and "DATA" in (h.columns.names if h.columns else [])]
         if not subs:
-            n_all = sum(int(h.header.get("NAXIS2", 0) or 0) for h in hdus[1:])
+            n_all = sum(int(_num(h.header.get("NAXIS2"), 0) or 0) for h in hdus[1:])
             raise ValueError(
                 f"PSRFITS không có dữ liệu: tổng số subint = {n_all} "
                 f"(NAXIS2 = 0 nghĩa là file rỗng)")
+
+        # ưu tiên NCHAN/NPOL khai báo trong SUBINT (OBSNCHAN là số kênh GỐC
+        # trước khi dedisperse on-line, không phải số kênh lưu trong DATA)
+        _h0 = subs[0].header
+        _nsub_ch = _num(_h0.get("NCHAN"), None)
+        _nsub_pol = _num(_h0.get("NPOL"), None)
+        if _nsub_ch and int(_nsub_ch) > 0 and int(_nsub_ch) != nchan:
+            warns.append(f"NCHAN(SUBINT)={int(_nsub_ch)} khác OBSNCHAN={nchan} "
+                         f"→ dùng NCHAN")
+            nchan = int(_nsub_ch)
+        if _nsub_pol and int(_nsub_pol) > 0:
+            npol = int(_nsub_pol)
 
         if npol < 1:
             # suy NPOL = len(DATA)/(nsblk*nchan); nếu lẻ → coi như 1
             hdu0 = subs[0]
             n_el = int(np.asarray(hdu0.data["DATA"][0]).size)
-            nsblk0 = int(hdu0.header.get("NSBLK", 1) or 1)
+            nsblk0 = int(_num(hdu0.header.get("NSBLK"), 1) or 1)
             guess = n_el / float(nsblk0 * nchan)
             npol = int(round(guess)) if guess >= 0.9 else 1
             warns.append(f"thiếu khoá NPOL → suy ra NPOL = {npol} "
@@ -85,7 +112,21 @@ def read_psrfits(path: str, max_seconds: float | None = None,
         for hdu in subs:
             d = hdu.data
             nsub = len(d)
-            nsblk = int(hdu.header.get("NSBLK", 0)) or None
+            _nch_sub = _num(hdu.header.get("NCHAN"), None)
+            if _nch_sub and int(_nch_sub) > 0 and int(_nch_sub) != nchan:
+                warns.append(f"NCHAN(SUBINT)={int(_nch_sub)} khác OBSNCHAN={nchan} "
+                             f"→ dùng NCHAN (OBSNCHAN là số kênh gốc trước "
+                             f"dedisperse on-line)")
+                nchan = int(_nch_sub)
+                freqs = None
+            nsblk = int(_num(hdu.header.get("NSBLK"), 0) or 0) or None
+            if nsblk is None:
+                # NSBLK='*' hoặc thiếu → suy từ số phần tử DATA
+                _el = int(np.asarray(d["DATA"][0]).size)
+                if _el and nchan and npol:
+                    nsblk = max(1, _el // (nchan * npol))
+                    warns.append(f"NSBLK thiếu/không hợp lệ → suy ra {nsblk} "
+                                 f"từ kích thước DATA ({_el} phần tử)")
             if freqs is None:
                 df = np.asarray(d["DAT_FREQ"][0], dtype=float)
                 if df.size == nchan:
@@ -103,6 +144,12 @@ def read_psrfits(path: str, max_seconds: float | None = None,
                 off = np.asarray(d["DAT_OFFS"][i], dtype=float)
                 td = hdu.header.get("TDIM%d" % _data_colnum(hdu), None)
                 shape = _parse_tdim(td, nsblk, nchan, npol)
+                if shape[2] != nchan and int(np.prod(shape)) == np.asarray(raw).size:
+                    # TDIM mô tả ĐÚNG cách dữ liệu được lưu → tin TDIM hơn NCHAN
+                    warns.append(f"NCHAN={nchan} không khớp TDIM {td} → dùng "
+                                 f"{shape[2]} kênh theo TDIM")
+                    nchan = int(shape[2])
+                    freqs = f_center + bw / 2 - (np.arange(nchan) + 0.5) * (bw / nchan)
                 arr = raw.reshape(shape).astype(np.float64)
                 # arr: (nsblk, npol, nchan) theo TDIM chuẩn
                 if scl.size == npol * nchan:
@@ -114,7 +161,7 @@ def read_psrfits(path: str, max_seconds: float | None = None,
                 else:
                     warns.append("thiếu DAT_SCL/DAT_OFFS → dùng giá trị thô")
                 chunks.append(arr)
-                t_total += int(hdu.header.get("NSBLK", shape[0]))
+                t_total += int(_num(hdu.header.get("NSBLK"), shape[0]) or shape[0])
                 if max_seconds is not None and t_total * tbin >= max_seconds:
                     break
             if max_seconds is not None and t_total * tbin >= max_seconds:
@@ -163,6 +210,11 @@ def _parse_tdim(tdim, nsblk, nchan, npol):
                 return (dims[2], dims[1], dims[0])
         except Exception:
             pass
+    if nsblk is None:
+        try:
+            size = int(np.prod([d for d in (1,)]) or 1)
+        except Exception:
+            size = 1
     return (nsblk or 1, npol, nchan)
 
 

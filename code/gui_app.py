@@ -35,27 +35,6 @@ if FROZEN:
     APP_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = APP_DIR if FROZEN else os.path.dirname(APP_DIR)
-CODE_DIR = APP_DIR
-DATA_DIR = os.path.join(ROOT_DIR, "data")
-RESULTS_DIR = os.path.join(ROOT_DIR, "results")
-
-sys.path.insert(0, CODE_DIR)
-
-
-def asset_path(name: str) -> str | None:
-    """Tìm file trong assets/ — chạy từ mã nguồn hoặc từ EXE đã đóng gói."""
-    cands = [os.path.join(APP_DIR, "assets", name),
-             os.path.join(ROOT_DIR, "assets", name)]
-    base = getattr(sys, "_MEIPASS", None)
-    if base:
-        cands.insert(0, os.path.join(base, "assets", name))
-    for c in cands:
-        if os.path.exists(c):
-            return c
-    return None
-
-
 def _win32_set_icons(root, ico: str) -> str:
     """Gắn icon TRỰC TIẾP qua Win32: WM_SETICON + icon của class.
 
@@ -155,7 +134,7 @@ def apply_icon(root) -> str:
 
 ROOT_DIR = APP_DIR if FROZEN else os.path.dirname(APP_DIR)
 CODE_DIR = APP_DIR
-DATA_DIR = os.path.join(ROOT_DIR, "data")
+DATA_DIR = os.path.join(ROOT_DIR, "data")        # sẽ được psr_paths xác nhận
 RESULTS_DIR = os.path.join(ROOT_DIR, "results")
 
 sys.path.insert(0, CODE_DIR)
@@ -177,6 +156,10 @@ def asset_path(name: str) -> str | None:
 # ép module dùng đúng thư mục data/results (không phụ thuộc nơi khởi chạy)
 import psr_detect            # noqa: E402
 import record_unattended     # noqa: E402
+import psr_paths             # noqa: E402
+
+DATA_DIR = psr_paths.data_dir()          # một nơi duy nhất quyết định đường dẫn
+RESULTS_DIR = psr_paths.results_dir()
 import psr_hw                # noqa: E402
 import psr_targets           # noqa: E402
 psr_detect.RESULTS = RESULTS_DIR
@@ -1170,6 +1153,22 @@ def selfcheck() -> int:
         chk("thư mục data/ và results/ tồn tại và ghi được", _w, APP_DIR)
     except Exception as e:
         chk("thư mục data/ và results/ tồn tại và ghi được", False, repr(e))
+
+    # ---- CHÍNH SÁCH I/O: data/ chỉ đọc, sản phẩm vào results/<tên>
+    try:
+        import psr_paths as _paths
+        _bad = _paths.self_check()
+        chk("chính sách I/O (data/ chỉ đọc, results/ ghi được)", not _bad,
+            "; ".join(_bad) or f"data={_paths.data_dir()}")
+        _blocked = False
+        try:
+            _paths.assert_write_allowed(os.path.join(_paths.data_dir(), "zz.json"))
+        except PermissionError:
+            _blocked = True
+        chk("chặn ghi vào thư mục dữ liệu thô", _blocked,
+            _paths.data_dir())
+    except Exception as e:
+        chk("chính sách I/O (data/ chỉ đọc, results/ ghi được)", False, repr(e))
     try:
         import tkinter as _tk
         _r = _tk.Tk()
@@ -1237,6 +1236,10 @@ def selfcheck() -> int:
                 "detect_metrics.json", "detect_report.txt"]
         got = [f for f in need if os.path.exists(os.path.join(outd, f))]
         chk("phát hiện + xuất đủ 4 tệp", len(got) == 4, f"{len(got)}/4")
+        # selfcheck chạy detect với RESULTS = tmp → sản phẩm phải nằm ngay dưới tmp
+        chk("sản phẩm ra đúng MỘT thư mục con của RESULTS (không rải file)",
+            os.path.dirname(os.path.abspath(outd)) == os.path.abspath(tmp),
+            os.path.basename(outd))
         import json as _json
         with open(os.path.join(outd, "detect_metrics.json"), encoding="utf-8") as fh:
             js = _json.load(fh)

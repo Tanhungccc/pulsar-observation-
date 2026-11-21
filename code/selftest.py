@@ -174,6 +174,33 @@ def test_site_profile():
     check("cảnh báo khi nhòe kênh > W50/2", not chk["ok"], chk["advice"][:60])
 
 
+def test_ingest_guard():
+    """L1: 4 quy tắc I/O + nhận dạng mù (docs/07 §6c)."""
+    import ingest_guard as G
+    bad = G.self_check()
+    check("ingest_guard: nhận dạng mù + 4 quy tắc I/O", not bad, "; ".join(bad))
+
+    import os as _os, tempfile
+    NL = chr(10)
+    tmp = tempfile.mkdtemp(prefix="ig_")
+    p = _os.path.join(tmp, "rtcs_export.csv")
+    hdr = "time_s," + ",".join("ch" + str(i) for i in range(64))
+    with open(p, "w", encoding="utf-8") as fh:
+        fh.write("# RTCS v2 export pho dong" + NL)
+        fh.write("# freq 1400 MHz, 64 kenh" + NL)
+        fh.write(hdr + NL)
+        for i in range(400):
+            vals = ",".join("%.4f" % (1 + 0.01 * np.sin(i / 10 + j)) for j in range(64))
+            fh.write(("%.4f" % (i * 0.001)) + "," + vals + NL)
+    import psr_detect
+    m = psr_detect.detect(p, dm_max=5.0)
+    check("CSV 2D của back-end (bỏ header text) đọc + phân tích được",
+          m.get("status") in ("ok", "rfi_zero_dm"),
+          "status=%s guard=%s" % (m.get("status"), (m.get("guard") or {}).get("tags")))
+    check("report có input_sha256 + schema_version",
+          bool(m.get("input_sha256")) and m.get("schema_version") == 3,
+          "sha=%s" % str(m.get("input_sha256"))[:10])
+
 def test_targets():
     a = alt_max(7.9266)      # B0950+08
     check("alt_max(B0950+08) ≈ 87.1°", abs(a - 87.1) < 0.2, f"{a:.1f}°")
@@ -297,6 +324,7 @@ if __name__ == "__main__":
     test_period_refine()
     test_subband_dm()
     test_constants()
+    test_ingest_guard()
     test_site_profile()
     test_targets()
     test_zero_dm_keeps_pulse()

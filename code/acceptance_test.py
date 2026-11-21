@@ -43,7 +43,7 @@ sys.path.insert(0, HERE)
 import psr_core, psr_detect, psr_fil, psr_fits, psr_iq, psr_hw   # noqa: E402
 import record_unattended as ru                                  # noqa: E402
 
-TMP = os.path.join(ROOT, "data", "_accept")
+TMP = os.path.join(ROOT, "results", "_accept")   # KHÔNG dùng data/ (chỉ đọc)
 R: list[tuple[str, bool, str]] = []
 
 

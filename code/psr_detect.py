@@ -59,12 +59,66 @@ def load_any(path: str, max_seconds: float | None = None, nchan_iq: int = 256,
         from psr_iq import read_iq_as_dyn
         return read_iq_as_dyn(path, nchan=nchan_iq, navg=navg_iq,
                               max_seconds=max_seconds)
-    return read_fil(path, max_seconds=max_seconds)
+    if low.endswith((".csv", ".tsv", ".txt")):
+        return read_table_as_dyn(path, max_seconds=max_seconds)
+    # đuôi lạ: thử SIGPROC trước, nếu không phải thì thử bảng text (nhận dạng
+    # theo NỘI DUNG — file .dat/.bin của back-end vẫn đọc được)
+    try:
+        return read_fil(path, max_seconds=max_seconds)
+    except Exception as exc_fil:
+        try:
+            return read_table_as_dyn(path, max_seconds=max_seconds)
+        except Exception:
+            raise exc_fil
+
+
+def read_table_as_dyn(path: str, max_seconds: float | None = None):
+    """Đọc CSV/TSV phổ do back-end xuất (RTCS/N6002) → (header, dyn).
+
+    Chỉ dùng được với **ma trận 2D (time × freq)**. Phổ 1D bị từ chối kèm lời
+    khuyên, vì không có trục thời gian thì không thể fold/tìm pulsar.
+    """
+    tab = guard.read_table_text(path)
+    if tab["rows"] is None or tab["kind"] == "unknown":
+        raise ValueError("không phải bảng số đọc được: "
+                         + "; ".join(tab["problems"]))
+    if tab["kind"] == "spectrum_1d":
+        raise ValueError(
+            "đây là phổ 1D (chỉ có trục tần số): đủ cho HI/continuum nhưng "
+            "KHÔNG đủ trục thời gian để tìm pulsar. Cần xuất ma trận "
+            "time × frequency (mỗi dòng là một mốc thời gian).")
+    arr = tab["rows"]
+    tcol = arr[:, 0] if tab.get("time_axis") is not None else None
+    data = arr[:, 1:] if tcol is not None else arr
+    if max_seconds and tcol is not None:
+        keep = tcol <= tcol[0] + max_seconds
+        data, tcol = data[keep], tcol[keep]
+    tsamp = float(np.median(np.diff(tcol))) if tcol is not None and tcol.size > 1 else None
+    if tsamp is not None and tsamp > 10:      # đơn vị ms
+        tsamp /= 1000.0
+    tsamp = tsamp or 1e-3
+    nch = data.shape[1]
+    # trục tần số: nếu file có cột tần số thì dùng, ngược lại giả định 1400 MHz
+    freqs = np.linspace(1400.0, 1400.0, nch)
+    h = dict(source=os.path.basename(path), nbits=32, nchans=nch,
+             tsamp=tsamp, tsamp_s=tsamp, ntime=data.shape[0],
+             t_s=data.shape[0] * tsamp, freqs_mhz=freqs,
+             tstart=None, data_file_bytes=os.path.getsize(path),
+             read_warnings=[f"đọc từ bảng text: {tab['ncol']} cột, "
+                            f"{tab['header_lines']} dòng header bị bỏ qua"])
+    h["validation"] = dict(ok=True, problems=[], warnings=h["read_warnings"],
+                           stats=dict(mean=float(np.mean(data)),
+                                      std=float(np.std(data)),
+                                      nchan=nch, ntime=int(data.shape[0])))
+    # bảng là (time × freq) — pipeline cần (chan × time)
+    return h, np.ascontiguousarray(data.astype(np.float32).T)
 import psr_plots as pp
+import ingest_guard as guard
+import psr_paths as paths
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RESULTS = os.path.join(os.path.dirname(HERE), "results")
-DATA = os.path.join(os.path.dirname(HERE), "data")
+RESULTS = paths.results_dir()       # chính sách I/O tập trung (psr_paths)
+DATA = paths.data_dir()
 
 # Mốc tham chiếu lấy từ DANH MỤC (psr_targets.PULSARS) — chỉ để KIỂM CHỨNG,
 # không dùng để "tìm". Không có mốc thì KHÔNG vẽ đường tham chiếu (tránh gán
@@ -166,10 +220,24 @@ def _write_min_report(out_dir: str, path: str, h: dict, m: dict):
     with open(os.path.join(out_dir, "detect_report.txt"), "w",
               encoding="utf-8") as fh:
         fh.write(txt + "\n")
-    with open(os.path.join(out_dir, "detect_metrics.json"), "w",
-              encoding="utf-8") as fh:
-        json.dump(_jsonify(m), fh, ensure_ascii=False, indent=2)
+    guard.atomic_write_json(os.path.join(out_dir, "detect_metrics.json"),
+                            _jsonify(m))       # Q2: ghi nguyên tử
     print(txt)
+
+
+def rebin_channels(dyn, rb: int, block: int = 512) -> np.ndarray:
+    """Gộp `rb` kênh liền nhau, theo KHỐI để RAM không phụ thuộc số kênh."""
+    d = np.asarray(dyn)
+    if rb <= 1:
+        return d.astype(np.float32, copy=False)
+    nch, nt = d.shape
+    nnew = nch // rb
+    out = np.empty((nnew, nt), dtype=np.float32)
+    for i in range(0, nnew, block):
+        j = min(i + block, nnew)
+        sl = d[i * rb: j * rb]
+        out[i:j] = sl.reshape(j - i, rb, nt).sum(axis=1, dtype=np.float32) / rb
+    return out
 
 
 def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
@@ -181,8 +249,24 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
     stem = safe_stem(os.path.splitext(os.path.basename(path))[0])
     out_dir = os.path.join(RESULTS, stem)
-    os.makedirs(out_dir, exist_ok=True)
-    m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {}}
+    paths.assert_write_allowed(out_dir)             # Q4: data/ là chỉ đọc
+    m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {},
+               "schema_version": 3,
+               "input_sha256": guard.input_fingerprint(path).get("sha256_head")}
+    # kiểm tra ghi được TRƯỚC khi làm bất cứ việc gì (thư mục chỉ-đọc, hết đĩa…)
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        _probe = os.path.join(out_dir, ".write_probe")
+        with open(_probe, "w", encoding="utf-8") as _fh:
+            _fh.write("ok")
+        os.remove(_probe)
+    except OSError as _exc:
+        m["status"] = "write_error"
+        m["problems"] = [f"không ghi được vào {out_dir}: {_exc}"]
+        print(f"→ DỪNG: không ghi được kết quả vào {out_dir} ({_exc}). "
+              f"Kiểm tra quyền ghi / dung lượng ổ đĩa.")
+        return m
+
     if dm_ref is None or p_ref is None:
         # chỉ dùng mốc khi NHẬN RA mục tiêu từ tên file / header
         _r = ref_from_catalogue(path, "")
@@ -229,6 +313,27 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     for w in h.get("read_warnings", []) or h["validation"]["warnings"]:
         print(f"   ⚠ {w}")
 
+    # ---- GUARD: nhận dạng trạng thái + gatekeeper (docs/07 §6c)
+    _stage = ("RAW_IQ" if os.path.basename(path).lower().endswith(IQ_EXTS)
+              else "CHANNELIZED_POWER")
+    try:
+        m["guard"] = guard.analyze_array(
+            dyn, h, meta=dict(path=path, stage=_stage, tsamp_s=tsamp,
+                              adc_bits=h.get("nbits", 8), gaps=[]))
+        print(f"→ guard: {guard.summary(m['guard'])}")
+        for _w in m["guard"].get("warnings", [])[:3]:
+            print(f"   ⚠ {_w}")
+        if not m["guard"].get("ok", True):
+            m["status"] = "invalid"
+            m["problems"] = (m.get("problems") or []) + [
+                "guard: " + t for t in m["guard"].get("tags", [])]
+            print("→ DỪNG: guard đánh giá dữ liệu không dùng được")
+            _write_min_report(out_dir, path, h, m)
+            return m
+    except Exception as _e:
+        m["guard"] = dict(ok=None, error=repr(_e))
+        print(f"   ⚠ guard lỗi: {_e!r}")
+
     # ---- CHẶN SỚM: dữ liệu không dùng được thì báo rõ, KHÔNG crash
     m["status"] = "ok"
     if not h["validation"]["ok"]:
@@ -239,6 +344,13 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         return m
     # Guard theo THỜI LƯỢNG (không chỉ số mẫu): 0.2 s vẫn đủ bắt giant pulse
     # (dữ liệu Dwingeloo), nhưng 4 ms (200 mẫu) thì vô nghĩa.
+    if int(h.get("nchans", 0) or 0) < 4:
+        m["status"] = "invalid"
+        m["problems"] = [f"chỉ có {h.get('nchans')} kênh — không thể khử tán sắc "
+                         f"hay đo DM; cần dữ liệu đa kênh (PSRFITS/filterbank)"]
+        print(f"→ DỪNG: {m['problems'][0]}")
+        _write_min_report(out_dir, path, h, m)
+        return m
     if h["ntime"] < 100 or h["t_s"] < 0.05:
         m["status"] = "too_short"
         print(f"→ DỪNG: quá ngắn ({h['ntime']} mẫu, {h['t_s']:.4f} s) — "
@@ -267,7 +379,9 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     TARGET_CH = 128
     rb = max(1, min(rebin, nch // TARGET_CH)) if nch > TARGET_CH else 1
     nnew = nch // rb
-    dyn_rb = dyn_z[: nnew * rb].reshape(nnew, rb, -1).mean(axis=1)
+    # Q1: gộp kênh theo KHỐI, float32 — không tạo bản sao (nchan, ntime, rb)
+    # float64 (đã gặp MemoryError 10 GiB với file 4096 kênh × 82k mẫu).
+    dyn_rb = rebin_channels(dyn_z[: nnew * rb], rb)
     f_rb = f_g[: nnew * rb].reshape(nnew, rb).mean(axis=1)
     m["stage"]["rebin"] = rb
     print(f"→ gộp {rb}× → {nnew} kênh ({np.diff(f_rb).mean()*1e3:.0f} kHz/kênh)")
@@ -352,7 +466,14 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # xung thật phải cho DM KHỚP với DM quét → đây là bộ lọc cuối cùng.
     dm_tol = max(3.0, 0.12 * dm_best, dm_res_data)
     dm_list, rejected = [], []
-    for p in pulses:
+    # chỉ đo DM dải con cho TOP-N xung mạnh nhất: mỗi phép đo là một lần quét
+    # dải con, với 200+ ứng viên sẽ rất chậm (đã gặp: 416 s cho 21 s dữ liệu)
+    MAX_SUBBAND = 8
+    pulses_for_dm = sorted(pulses, key=lambda x: -x.get("snr", 0))[:MAX_SUBBAND]
+    if len(pulses) > MAX_SUBBAND:
+        print(f"→ A11c: đo DM dải con cho {MAX_SUBBAND}/{len(pulses)} xung mạnh "
+              f"nhất (phần còn lại giữ nguyên làm ứng viên)")
+    for p in pulses_for_dm:
         try:
             r = subband_dm_single(dyn_z, f_g, tsamp, p["t_s"],
                                   window_s=0.05, nsub=8,
@@ -373,6 +494,9 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
             rejected.append(p)
             print(f"   ⚠ xung t={p['t_s']*1e3:.0f} ms: lỗi đo DM dải con: {e!r}")
     pulses_ok = [p for p in pulses if p.get("dm_consistent")]
+    # xung chưa được đo DM dải con: coi là ứng viên "chưa xác nhận", không loại
+    for p in pulses:
+        p.setdefault("dm_consistent", None)
     print(f"→ A11c DM dải con (nhất quán ±{dm_tol:.1f}): "
           f"{len(pulses_ok)}/{len(pulses)} xung"
           + (f" | DM = {np.mean(dm_list):.2f} ± {np.std(dm_list):.2f}"
@@ -635,9 +759,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     _savefig(fig, f2); plt.close(fig)
 
     m["files"] = [os.path.basename(f1), os.path.basename(f2)]
-    with open(os.path.join(out_dir, "detect_metrics.json"), "w",
-              encoding="utf-8") as fh:
-        json.dump(_jsonify(m), fh, ensure_ascii=False, indent=2)
+    guard.atomic_write_json(os.path.join(out_dir, "detect_metrics.json"),
+                            _jsonify(m))       # Q2: ghi nguyên tử
 
     # ---------------- báo cáo chữ
     rep = []

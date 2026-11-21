@@ -28,6 +28,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import struct
 import sys
 import time
@@ -37,10 +38,12 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from psr_core import ensure_utf8_stdout
+import ingest_guard as guard
+import psr_paths as paths
 import psr_hw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(os.path.dirname(HERE), "data")
+DATA = paths.data_dir()       # chính sách I/O tập trung
 
 
 # ============================================================ nguồn dữ liệu
@@ -295,6 +298,16 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
     foff = -bw / nchan
     gain = gain_db if gain_db is not None else min(chain.gain_db, 40.0)
 
+    # ---- Q2: kiểm tra ổ đĩa TRƯỚC khi ghi (ước lượng ×1,2)
+    est_bytes = nchan * (dur / (tsamp_us * 1e-6)) * 1.0    # 1 byte/mẫu (uint8)
+    _pf = guard.disk_preflight(out_dir, est_bytes)
+    print(f"→ Q2 đĩa: cần {_pf['need']/1e9:.1f} GB (gồm 20 % dự phòng), "
+          f"còn trống {_pf['free']/1e9:.1f} GB")
+    if not _pf["ok"]:
+        raise RuntimeError(
+            f"không đủ dung lượng: cần {_pf['need']/1e9:.1f} GB, chỉ còn "
+            f"{_pf['free']/1e9:.1f} GB (giữ chỗ tối thiểu "
+            f"{_pf['min_free_mb']} MB). Dừng TRƯỚC khi tạo file.")
     meta = dict(target=target, band_mhz=fc, nchan=nchan, tsamp_s=tsamp_us * 1e-6,
                 bw_mhz=bw, gain_db=gain, chain=chain.parts,
                 fallbacks=chain.fallbacks, tsys_k=round(chain.t_sys_k, 1),
@@ -453,6 +466,11 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
                         print(f"   [{(dt/3600):.2f} h] {wr.rows} dòng, "
                               f"{len(src.gaps)} gap, "
                               f"{os.path.getsize(path)/1e6:.0f} MB")
+                        _free = shutil.disk_usage(out_dir).free
+                        if _free < 200 * 1024 * 1024:
+                            meta["aborted"] = "disk_full"
+                            print(f"→ DỪNG: ổ đĩa còn {_free/1e6:.0f} MB")
+                            break
                 meta["gaps"] = src.gaps
         if wr is not None:
             wr.close()
@@ -491,8 +509,10 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
 
     # sidecar ghi SAU khi đã có roundtrip_ok (trước đây ghi sớm → thiếu khóa)
     side = path.replace(".fil", ".json")
-    with open(side, "w", encoding="utf-8") as fh:
-        json.dump(meta, fh, ensure_ascii=False, indent=2)
+    meta["input_sha256"] = guard.input_fingerprint(path).get("sha256_head")
+    meta["schema_version"] = 3
+    meta["disk"] = _pf
+    guard.atomic_write_json(side, meta)       # Q2: ghi nguyên tử
     print(f"→ metadata: {side}")
 
     if analyze:
