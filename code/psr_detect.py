@@ -53,6 +53,25 @@ def load_any(path: str, max_seconds: float | None = None, nchan_iq: int = 256,
     đi thật của tín hiệu: dây → SDR → I/Q → FFT → kênh → tìm pulsar.
     """
     low = path.lower()
+    # ---- NHẬN DẠNG THEO NỘI DUNG trước, đuôi file chỉ là gợi ý.
+    # (đã gặp: file .ar của MeerKAT/TRAPUM thực chất là PSRFITS, đổi đuôi;
+    #  nếu chỉ dựa vào đuôi thì bị đọc sai và báo unreadable)
+    try:
+        kind = guard.sniff_format(path).get("kind")
+    except Exception:
+        kind = None
+    if kind == "psrfits":
+        return read_psrfits(path, max_seconds=max_seconds)
+    if kind == "sigproc":
+        return read_fil(path, max_seconds=max_seconds)
+    if kind == "text":
+        return read_table_as_dyn(path, max_seconds=max_seconds)
+    if kind in ("sigmf", "wav"):
+        from psr_iq import read_iq_as_dyn
+        return read_iq_as_dyn(path, nchan=nchan_iq, navg=navg_iq,
+                              max_seconds=max_seconds)
+
+    # ---- không nhận ra bằng nội dung → dùng đuôi file
     if low.endswith((".fits", ".psrfits", ".sf", ".rf", ".cf")):
         return read_psrfits(path, max_seconds=max_seconds)
     if low.endswith(IQ_EXTS):
@@ -61,8 +80,7 @@ def load_any(path: str, max_seconds: float | None = None, nchan_iq: int = 256,
                               max_seconds=max_seconds)
     if low.endswith((".csv", ".tsv", ".txt")):
         return read_table_as_dyn(path, max_seconds=max_seconds)
-    # đuôi lạ: thử SIGPROC trước, nếu không phải thì thử bảng text (nhận dạng
-    # theo NỘI DUNG — file .dat/.bin của back-end vẫn đọc được)
+    # đuôi lạ: thử SIGPROC, rồi bảng text
     try:
         return read_fil(path, max_seconds=max_seconds)
     except Exception as exc_fil:

@@ -15,6 +15,9 @@ kèm ghi công theo giấy phép gốc.
 | `data/iq/crab-giantpulse.sigmf-*` | **IQ thô** 20 MS/s, 410 MHz, giant pulse Cua, kính Dwingeloo 25 m | Zenodo [13143544](https://zenodo.org/records/13143544) — M. Fine, T. J. Dijkema, J. Hessels | CC-BY-4.0 |
 | `data/stress/28.fil`, `small.fil`, `empty.fits`, `test_4pol.fits` | File test định dạng (kể cả file hỏng) | [thepetabyteproject/your](https://github.com/thepetabyteproject/your) `tests/data/` | MIT |
 | `data/stress/tutorial.fil` | Ví dụ chính thức, mẫu **2-bit** | [ewanbarr/sigpyproc](https://github.com/ewanbarr/sigpyproc) `examples/` | MIT |
+| `data/extra/B1822-09_650MHz.fits` | **PSRFITS thật** (GMRT, 650 MHz, 4096 kênh nhưng chỉ **1 tích phân**) — dùng để thử đọc header thật (`NSBLK='*'`, `NCHAN`≠`OBSNCHAN`, TDIM) | Zenodo [18497372](https://zenodo.org/records/18497372) (SUSPECT) | xem trang Zenodo |
+| `data/extra/ar/*.ar` | **3 file MeerKAT/TRAPUM** (LMC) — thực chất là **PSRFITS** đổi đuôi, `TBIN = 0` (dữ liệu fold/single-pulse) → kiểm tra nhận dạng theo **nội dung** và thông báo lỗi rõ ràng | Zenodo [12723577](https://zenodo.org/records/12723577) | xem trang Zenodo |
+| `data/extra/B0329+54_{4bit,16bit,float32,long21s}.fil` | **Sinh từ** `data/B0329+54.fil` bởi `code/make_test_data.py` (4-bit, 16-bit, float32, bản 21 s có gap) + `manifest.json` | — | như nguồn gốc (CC-BY-4.0) |
 | `data/stress/injected_*` | **Tự sinh** bởi `stress_test.py` (tiêm pulsar vào nền RFI thật) | — | — |
 
 ## Tải nhanh
