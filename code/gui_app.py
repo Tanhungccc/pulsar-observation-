@@ -1469,7 +1469,7 @@ class App:
 
 
 # ---------------------------------------------------------------- selfcheck EXE
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 
 def selfcheck() -> int:
@@ -1551,6 +1551,10 @@ def selfcheck() -> int:
             _blocked = True
         chk("chặn ghi vào thư mục dữ liệu thô", _blocked,
             _paths.data_dir())
+        import psr_site as _st
+        _prof = _st.ensure_default_profile()
+        chk("hồ sơ trạm/kính tồn tại (configs/*.json)",
+            os.path.exists(_prof), os.path.basename(_prof))
     except Exception as e:
         chk("chính sách I/O (data/ chỉ đọc, results/ ghi được)", False, repr(e))
     try:
@@ -1661,6 +1665,13 @@ def selfcheck() -> int:
 def main():
     if "--selfcheck" in sys.argv:
         sys.exit(selfcheck())
+    try:                               # bảo đảm data/, results/, configs/ tồn tại
+        import psr_paths as _p
+        import psr_site as _s
+        _p.ensure_dirs()
+        _s.ensure_default_profile()
+    except Exception:
+        pass
     if "--lang" in sys.argv:
         try:
             code = sys.argv[sys.argv.index("--lang") + 1]

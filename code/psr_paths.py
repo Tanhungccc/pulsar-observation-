@@ -168,6 +168,7 @@ def describe() -> dict:
 def self_check() -> list:
     """Kiểm tra chính sách: đường dẫn tồn tại, data/ bị chặn ghi."""
     bad = []
+    ensure_dirs()                      # tạo data/, results/, configs/ nếu thiếu
     d = describe()
     for k in ("app", "data", "results", "configs"):
         if not d[k] or not os.path.isdir(d[k]):

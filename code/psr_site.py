@@ -166,6 +166,16 @@ def load_profile(path: str) -> Profile:
     return p
 
 
+def ensure_default_profile() -> str:
+    """Bảo đảm có configs/<id>.json cạnh app; thiếu thì ghi hồ sơ mặc định."""
+    d = profiles_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, "{}.json".format(default_profile().id))
+    if not os.path.exists(path):
+        default_profile().save(path)
+    return path
+
+
 def active_profile() -> Profile:
     """Hồ sơ đang dùng: `PSR_PROFILE` (đường dẫn) hoặc mặc định (RTP37 @ TP.HCM)."""
     path = os.environ.get("PSR_PROFILE")
