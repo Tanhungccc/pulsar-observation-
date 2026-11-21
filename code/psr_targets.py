@@ -32,39 +32,65 @@ RESULTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
                        "results")
 
 # ------------------------------------------------------------------- danh mục
-# s408/s1400: mJy (xấp xỉ) | w408/w1400: độ rộng xung W50 (ms)
+# NGUỒN SỐ: ATNF Pulsar Catalogue v2.9.0 (psrcat.db, tải 2026-11).
+#   s408  = S400  (mJy), s1400 = S1400 (mJy), w1400 = W50 đo ở 1.4 GHz (ms).
+#   w408 KHÔNG lấy từ catalogue (catalogue không có W50 ở 400 MHz) mà TÍNH
+#   bằng mô hình ở dưới: giãn nội tại W ∝ ν^-0.3 + tán xạ τ ∝ DM^2.2 ν^-4.4.
+# LƯU Ý BẮT BUỘC: trước 2026-11 danh mục này dùng số GẦN ĐÚNG, sai tới ×7
+#   (B0329+54 ghi 200 mJy thay vì 1500; Vela ghi 700 thay vì 5000) → mọi bảng
+#   SNR cũ đều sai. Đã đối chiếu lại toàn bộ với psrcat.db.
+import math as _math
+
+
+def tau_scattering_ms(dm: float, f_mhz: float) -> float:
+    """Thời gian tán xạ (ms) theo Bhat+2004: τ(1 GHz) ≈ 1.3e-4·(DM/100)^2.2 s,
+    quy đổi τ ∝ ν^-4.4. Dùng để biết xung có bị nhòe ở tần số thấp hay không."""
+    return 1.3e-4 * (max(dm, 0.0) / 100.0) ** 2.2 * (f_mhz / 1000.0) ** -4.4 * 1e3
+
+
+def w50_at(w50_1400_ms: float, dm: float, f_mhz: float,
+           alpha_w: float = 0.3) -> float:
+    """W50 tại tần số quan sát (ms) = giãn nội tại (∝ ν^-α) ⊕ tán xạ."""
+    w_int = w50_1400_ms * (1400.0 / f_mhz) ** alpha_w
+    return _math.hypot(w_int, tau_scattering_ms(dm, f_mhz))
+
+
 PULSARS = [
     dict(name="B0950+08", pdot=2.3e-16, ra=148.2888, dec=7.9266, P=0.253065, dm=2.97,
-         s408=700, s1400=110, w408=25, w1400=6,
-         note="Sáng nhất trong tầm, DM thấp, gần thiên đỉnh — MỤC TIÊU #1"),
+         s408=400, s1400=100, w1400=8.6,
+         note="Sáng, DM thấp, gần thiên đỉnh 87° — MỤC TIÊU #1 cho L-band"),
     dict(name="B1929+10", pdot=1.16e-15, ra=292.0, dec=10.9833, P=0.226518, dm=3.18,
-         s408=350, s1400=45, w408=30, w1400=6,
-         note="Gần thiên đỉnh, DM thấp, nhịp nhanh"),
+         s408=303, s1400=29, w1400=6.0,
+         note="Gần thiên đỉnh 90°, DM thấp, nhưng yếu ở 1.4 GHz"),
     dict(name="B1133+16", pdot=3.73e-15, ra=174.0, dec=15.8167, P=1.187935, dm=4.84,
-         s408=250, s1400=35, w408=40, w1400=10,
-         note="P dài, dễ fold, cao 85°"),
+         s408=257, s1400=20, w1400=5.8,
+         note="P dài, dễ fold, cao 85°; sáng ở 423 MHz hơn 1.4 GHz"),
     dict(name="B0329+54", pdot=2e-15, ra=53.2475, dec=54.5788, P=0.714519, dm=26.76,
-         s408=200, s1400=25, w408=40, w1400=12,
-         note="Kinh điển; nhưng P dài + DM vừa"),
+         s408=1500, s1400=203, w1400=6.6,
+         note="RẤT sáng (1.5 Jy @400 MHz) — mục tiêu chủ lực, dù altmax 46°"),
     dict(name="B0833-45", pdot=1.25e-13, ra=128.8358, dec=-45.1764, P=0.089328, dm=67.94,
-         s408=700, s1400=110, w408=20, w1400=3,
-         note="Vela — rất mạnh nhưng chỉ cao 34°"),
+         s408=5000, s1400=1050, w1400=1.7,
+         note="Vela — SÁNG NHẤT (5 Jy @400, 1.05 Jy @1400); altmax 34°"),
     dict(name="B0531+21", pdot=4.21e-13, ra=83.6332, dec=22.0145, P=0.033392, dm=56.77,
-         s408=650, s1400=14, w408=10, w1400=3,
-         note="Cua — fold khó, nhưng có GIANT PULSE (xem snr_single)"),
+         s408=646, s1400=14, w1400=3.0,
+         note="Cua — mạnh ở 423 MHz, RẤT yếu ở L-band (14 mJy); có giant pulse"),
     dict(name="J0437-4715", pdot=5.73e-20, ra=69.3163, dec=-47.2525, P=0.005757, dm=2.644,
-         s408=400, s1400=150, w408=4, w1400=0.6,
-         note="MSP sáng nhất; P rất ngắn → cần đồng hồ tốt"),
-    dict(name="B1641-45", pdot=1.02e-14, ra=251.2054, dec=-45.9867, P=0.455, dm=475.0,
-         s408=350, s1400=60, w408=60, w1400=20,
-         note="DM lớn (475) — bài tập khử tán sắc"),
-    dict(name="B1706-44", pdot=9.41e-14, ra=257.4280, dec=-44.4856, P=0.102476, dm=75.7,
-         s408=300, s1400=45, w408=20, w1400=4,
-         note="Trẻ, mạnh, nhưng thấp 34°"),
+         s408=550, s1400=150.2, w1400=0.141,
+         note="MSP sáng nhất; P 5,76 ms → cần đồng hồ tốt, xung rất hẹp"),
+    dict(name="B1641-45", pdot=1.02e-14, ra=251.2054, dec=-45.9867, P=0.455, dm=478.7,
+         s408=375, s1400=300, w1400=8.0,
+         note="DM 479 → tán xạ xóa sạch ở 423 MHz, nhưng QUAN SÁT ĐƯỢC ở L-band"),
+    dict(name="B1706-44", pdot=9.41e-14, ra=257.4280, dec=-44.4856, P=0.102476, dm=75.58,
+         s408=25, s1400=12.1, w1400=6.0,
+         note="Trẻ nhưng rất yếu ở vô tuyến (25 mJy @400) — không khả thi"),
     dict(name="B1937+21", pdot=1.05e-19, ra=294.9107, dec=21.5831, P=0.0015578, dm=71.02,
-         s408=60, s1400=10, w408=2, w1400=0.2,
-         note="MSP mili-giây — thử thách đồng hồ cực đại"),
+         s408=240, s1400=13.9, w1400=0.0382,
+         note="MSP 1,56 ms — thử thách đồng hồ và tsamp cực đại"),
 ]
+
+# sinh w408 từ mô hình (không chép tay) để mọi bảng SNR dùng cùng một nguồn
+for _t in PULSARS:
+    _t["w408"] = round(w50_at(_t["w1400"], _t["dm"], 423.0), 2)
 
 OBJECTS = [
     dict(name="Mặt Trời (quiet)", ra=None, dec=None, flux=400000, f=1420,
@@ -148,6 +174,191 @@ def alt_max(dec_deg, lat_deg=LAT_DEG):
     return 90.0 - abs(lat_deg - dec_deg)
 
 
+# ------------------------------------------------- DANH MỤC MỤC TIÊU TỰ THÊM
+# Người dùng có thể quan sát nguồn KHÔNG có trong PULSARS (pulsar mới, nguồn
+# continuum, hay mục tiêu tự đặt). Danh mục tự thêm lưu ở targets_user.json
+# cạnh ứng dụng — thêm/sửa/xoá ngay trong GUI, không cần sửa code.
+import json
+import re as _re
+import sys as _sys
+
+
+def app_dir() -> str:
+    """Thư mục ghi được (chạy mã nguồn hay EXE đều đúng)."""
+    if getattr(_sys, "frozen", False):
+        return os.path.dirname(_sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def user_targets_path() -> str:
+    return os.environ.get("PSR_TARGETS_FILE") or os.path.join(
+        app_dir(), "targets_user.json")
+
+
+def load_user_targets() -> list:
+    """Đọc danh mục tự thêm; file hỏng/thiếu → danh sách rỗng (không crash)."""
+    path = user_targets_path()
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        items = data.get("targets", []) if isinstance(data, dict) else data
+        out = []
+        for t in items:
+            if isinstance(t, dict) and t.get("name"):
+                t = dict(t)
+                t["custom"] = True
+                out.append(t)
+        return out
+    except Exception as exc:
+        print(f"⚠ không đọc được {path}: {exc!r} — bỏ qua danh mục tự thêm")
+        return []
+
+
+def save_user_targets(items: list) -> None:
+    path = user_targets_path()
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "targets": items}, fh,
+                  ensure_ascii=False, indent=2)
+
+
+def all_pulsars() -> list:
+    """PULSARS (có sẵn) + mục tiêu tự thêm. Tự thêm TRÙNG TÊN thì thay thế."""
+    user = load_user_targets()
+    names = {str(t["name"]).strip().lower() for t in user}
+    out = [dict(t, custom=False) for t in PULSARS
+           if str(t["name"]).strip().lower() not in names]
+    out.extend(user)
+    return out
+
+
+def find_target(name: str, items: list | None = None) -> dict | None:
+    """Tra mục tiêu theo tên (không phân biệt hoa/thường, bỏ khoảng trắng)."""
+    if not name:
+        return None
+    key = str(name).strip().lower()
+    for t in (items if items is not None else all_pulsars()):
+        if str(t.get("name", "")).strip().lower() == key:
+            return t
+    return None
+
+
+def upsert_target(t: dict) -> dict:
+    """Thêm mới hoặc cập nhật (theo tên) một mục tiêu tự thêm."""
+    problems = validate_target(t)
+    if problems:
+        raise ValueError("; ".join(problems))
+    items = load_user_targets()
+    keys = ("name", "ra", "dec", "P", "dm", "pdot",
+            "s408", "s1400", "w408", "w1400", "note")
+    item = {k: t[k] for k in keys if t.get(k) not in (None, "")}
+    item["name"] = str(item["name"]).strip()
+    item["custom"] = True
+    key = item["name"].lower()
+    for i, old in enumerate(items):
+        if str(old.get("name", "")).strip().lower() == key:
+            items[i] = item
+            break
+    else:
+        items.append(item)
+    save_user_targets(items)
+    return item
+
+
+def delete_target(name: str) -> bool:
+    items = load_user_targets()
+    key = str(name).strip().lower()
+    keep = [t for t in items if str(t.get("name", "")).strip().lower() != key]
+    if len(keep) == len(items):
+        return False
+    save_user_targets(keep)
+    return True
+
+
+def parse_ra(text: str) -> float:
+    """RA → độ. "HH:MM:SS" (giờ) hoặc số thực (độ).
+
+    Quy ước: CÓ dấu ':' là giờ-phút-giây; chỉ có số thì là ĐỘ.
+    """
+    t = str(text).strip().replace("h", ":").replace("m", ":").replace("s", "")
+    if not t:
+        raise ValueError("RA trống")
+    if ":" in t:
+        parts = [p for p in _re.split(r"[:\s]+", t) if p]
+        if len(parts) > 3:
+            raise ValueError("RA có quá 3 phần")
+        vals = [float(x) for x in parts] + [0.0] * (3 - len(parts))
+        h, m, sec = vals[0], vals[1], vals[2]
+        if not (0 <= h < 24 and 0 <= m < 60 and 0 <= sec < 60):
+            raise ValueError("RA ngoài khoảng (giờ 0–24, phút/giây 0–60)")
+        return (h + m / 60 + sec / 3600) * 15.0
+    v = float(t)
+    if not (0 <= v < 360):
+        raise ValueError("RA (độ) phải trong [0, 360)")
+    return v
+
+
+def parse_dec(text: str) -> float:
+    """Dec → độ. "±DD:MM:SS" hoặc số thực (độ)."""
+    t = str(text).strip().replace("d", ":").replace("m", ":").replace("s", "")
+    t = t.replace("−", "-").replace("–", "-")
+    if not t:
+        raise ValueError("Dec trống")
+    sign = -1.0 if t.startswith("-") else 1.0
+    body = t.lstrip("+-")
+    if ":" in body:
+        parts = [p for p in _re.split(r"[:\s]+", body) if p]
+        vals = [float(x) for x in parts] + [0.0] * (3 - len(parts))
+        d, m, sec = vals[0], vals[1], vals[2]
+        if not (0 <= d <= 90 and 0 <= m < 60 and 0 <= sec < 60):
+            raise ValueError("Dec ngoài khoảng (độ 0–90, phút/giây 0–60)")
+        return sign * (d + m / 60 + sec / 3600)
+    v = sign * float(body)
+    if not (-90 <= v <= 90):
+        raise ValueError("Dec phải trong [-90, +90]")
+    return v
+
+
+def validate_target(t: dict) -> list:
+    """Trả về danh sách lỗi (rỗng = hợp lệ)."""
+    problems = []
+    name = str(t.get("name", "")).strip()
+    if not name:
+        problems.append("thiếu tên mục tiêu")
+    elif len(name) > 24:
+        problems.append("tên quá dài (>24 ký tự)")
+    elif any(c in name for c in '\\/:*?"<>|'):
+        problems.append('tên chứa ký tự không hợp lệ \\ / : * ? " < > |')
+    try:
+        ra = float(t.get("ra"))
+        if not (0 <= ra < 360):
+            problems.append("RA phải trong [0, 360) độ")
+    except (TypeError, ValueError):
+        problems.append("RA không hợp lệ")
+    try:
+        dec = float(t.get("dec"))
+        if not (-90 <= dec <= 90):
+            problems.append("Dec phải trong [-90, +90] độ")
+    except (TypeError, ValueError):
+        problems.append("Dec không hợp lệ")
+    for key, label in (("P", "chu kỳ P (s)"), ("dm", "DM (pc cm-3)"),
+                       ("s408", "flux 408 MHz (mJy)"),
+                       ("s1400", "flux 1400 MHz (mJy)"),
+                       ("w408", "W50 408 MHz (ms)"),
+                       ("w1400", "W50 1400 MHz (ms)")):
+        v = t.get(key)
+        if v in (None, ""):
+            continue
+        try:
+            if float(v) < 0:
+                problems.append(f"{label} phải ≥ 0")
+        except (TypeError, ValueError):
+            problems.append(f"{label} không phải số")
+    return problems
+
+
 # ------------------------------------------------------------------- cấu hình
 CONFIGS = [
     Config("A: RTL-SDR + SAWbird+HI (hiện có)", 1420, 2.4, 150, 64, 104),
@@ -159,23 +370,32 @@ CONFIGS = [
 
 
 def pick_flux(t, f_mhz):
-    return (t["s408"] / 1e3, t["w408"] / 1e3) if f_mhz < 800 else \
-           (t["s1400"] / 1e3, t["w1400"] / 1e3)
+    """Flux (Jy) + W50 (s) tại tần số quan sát; (None, None) nếu thiếu dữ liệu."""
+    hi = f_mhz >= 800
+    s = t.get("s1400") if hi else t.get("s408")
+    w = t.get("w1400") if hi else t.get("w408")
+    if s is None or w is None:
+        return None, None
+    return float(s) / 1e3, float(w) / 1e3
 
 
 def table_pulsars(csv_path=None):
     dish = Dish()
     rows = []
-    for t in PULSARS:
+    for t in all_pulsars():
         amax = alt_max(t["dec"])
         hbest, month, _ = best_month(t["ra"], t["dec"])
-        row = dict(name=t["name"], P_ms=t["P"] * 1e3, dm=t["dm"],
-                   alt_max=round(amax, 1), best_month=month,
-                   h_above30=round(hbest, 1), note=t["note"])
+        row = dict(name=t["name"],
+                   P_ms=(t["P"] * 1e3) if t.get("P") else None,
+                   dm=t.get("dm"), alt_max=round(amax, 1), best_month=month,
+                   h_above30=round(hbest, 1), note=t.get("note", ""))
         for cfg in CONFIGS:
             sefd = dish.sefd_jy(cfg.tsys_k)
             s, w = pick_flux(t, cfg.f_mhz)
             key = cfg.name.split(":")[0]
+            if s is None or w is None or not t.get("P"):
+                row[f"SNR1h_{key}"] = row[f"SNR6h_{key}"] = None
+                continue
             row[f"SNR1h_{key}"] = round(snr_fold(s, sefd, cfg.bw_mhz * 1e6,
                                                  3600, t["P"], w), 2)
             row[f"SNR6h_{key}"] = round(snr_fold(s, sefd, cfg.bw_mhz * 1e6,
@@ -203,9 +423,15 @@ def print_pulsars(rows):
               f"{'h>30°':>5} {'SNR 1h':>7} {'SNR 6h':>7}  kết luận")
         for r in rows:
             s1, s6 = r[f"SNR1h_{key}"], r[f"SNR6h_{key}"]
-            print(f"{r['name']:>11} {r['P_ms']:>7.1f} {r['dm']:>6.1f} "
+            p_ms = "—" if r["P_ms"] is None else f"{r['P_ms']:7.1f}"
+            dm = "—" if r["dm"] is None else f"{r['dm']:6.1f}"
+            if s1 is None or s6 is None:
+                s1s, s6s, vd = "      —", "      —", "thiếu P/DM/flux"
+            else:
+                s1s, s6s, vd = f"{s1:7.2f}", f"{s6:7.2f}", verdict(s6, 6 * 3600)
+            print(f"{r['name']:>11} {p_ms} {dm} "
                   f"{r['alt_max']:>6.1f} {r['best_month']:>5} {r['h_above30']:>5.1f} "
-                  f"{s1:>7.2f} {s6:>7.2f}  {verdict(s6, 6*3600)}")
+                  f"{s1s} {s6s}  {vd}")
     print("\n(Lưu ý: 1 giờ quan sát thực tế chỉ đạt ~60–70% thời gian trên do "
           "hiệu chuẩn + trỏ + mất mẫu; hãy nhân thêm hệ số 0.7.)")
 
@@ -254,7 +480,10 @@ def print_derived():
     print(f"{'pulsar':>11} {'P(ms)':>8} {'Pdot':>10} {'B(G)':>9} {'tuổi(yr)':>11} "
           f"{'Edot(W)':>10} {'d_DM(kpc)':>10}  loại")
     dish = Dish()
-    for t in PULSARS:
+    for t in all_pulsars():
+        if t.get("P") is None or t.get("pdot") is None or t.get("dm") is None:
+            print(f"{t['name']:>11}  (thiếu P / P-dot / DM — không tính được)")
+            continue
         d = derived(t["pdot"], t["P"], t["dm"])
         kind = "MSP" if t["P"] < 0.03 else ("trẻ" if d["age_yr"] < 1e5 else "thường")
         print(f"{t['name']:>11} {t['P']*1e3:>8.1f} {t['pdot']:>10.2e} "
@@ -336,7 +565,7 @@ def print_daytime(date_str=None, min_sep=45.0, min_alt=25.0):
     print(f"Điều kiện: độ cao > {min_alt:.0f}°, Mặt Trời đã mọc, "
           f"tách Mặt Trời > {min_sep:.0f}°")
     rows = []
-    for t in PULSARS:
+    for t in all_pulsars():
         w = daytime_windows(t["ra"], t["dec"], day, min_sep, min_alt)
         h = sum(x[2] for x in w)
         best = max(w, key=lambda x: x[2]) if w else None
@@ -386,12 +615,16 @@ def print_transit(date_str=None, bw_mhz=20.0, tsys=200.0, hpbw=13.4):
     print(f"Gia dinh: 423 MHz, HPBW {hpbw:.1f} do, B = {bw_mhz:.0f} MHz, Tsys = {tsys:.0f} K")
     print(f"{'pulsar':>11} {'transit':>8} {'el':>6} {'T_eff@423':>10} {'SNR/transit':>12} "
           f"{'dem can':>8}")
-    for t in PULSARS:
+    for t in all_pulsars():
         tr = transit_local(t["ra"], day)
         el = float(alt_deg(t["ra"], t["dec"], jd_from_datetime(tr)))
         te = teff_transit_h(hpbw, t["dec"])
         s, w = pick_flux(t, 423.0)
         sefd = dish.sefd_jy(tsys)
+        if s is None or w is None or not t.get("P"):
+            print(f"{t['name']:>11} {tr:%H:%M} {el:>6.1f} {te:>9.2f}h "
+                  f"{'—':>12} {'—':>8}  (thiếu flux/P)")
+            continue
         snr1 = snr_fold(s, sefd, bw_mhz * 1e6, te * 3600, t["P"], w)
         n = math.ceil((8.0 / snr1) ** 2) if snr1 > 0 else 99
         print(f"{t['name']:>11} {tr:%H:%M} {el:>6.1f} {te:>9.2f}h {snr1:>12.1f} "

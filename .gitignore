@@ -36,3 +36,6 @@ Thumbs.db
 # ---- log build / tệp tạm khi đóng gói ----
 build_log.txt
 *.spec
+
+# danh mục mục tiêu người dùng tự thêm (dữ liệu người dùng)
+targets_user.json

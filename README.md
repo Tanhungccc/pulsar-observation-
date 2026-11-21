@@ -16,7 +16,10 @@ pulsar observation/
 │   ├── 02_chuoi_thu_va_do_nhay.md  chuỗi thu, T_sys, SEFD, ngân sách S/N, RFI
 │   ├── 03_do_duoc_gi_tu_pulsar.md  đo được gì: P, Ṗ, B, tuổi, DM, vị trí, ...
 │   ├── 04_quan_sat_gi_khac.md      còn quan sát được gì khác ngoài pulsar
-│   └── 05_ke_hoach_trien_khai.md   kế hoạch 5 giai đoạn + cổng G0–G4 + chi phí
+│   ├── 05_ke_hoach_trien_khai.md   kế hoạch 5 giai đoạn + cổng G0–G4 + chi phí
+│   ├── 06_phan_cung_toi_gian_va_ghi_tu_dong.md  phần cứng tối giản, ghi tự động, nghiệm thu
+│   ├── 07_kien_truc_he_thong_xu_ly.md  ★ ĐẶC TẢ CHỐT kiến trúc 6 tầng + mốc M1–M5
+│   └── 08_nghien_cuu_kha_thi.md     làm được gì về pulsar với thiết bị hiện có (kèm arXiv)
 ├── code/
 │   ├── psr_core.py                 lõi DSP (tán sắc, fold, FFT, RFI, SNR, DM)
 │   ├── psr_fil.py                  đọc/ghi SIGPROC .fil (1/2/4/8/16/32-bit, nifs>1)
@@ -55,6 +58,21 @@ Tải **`PulsarObs.exe`** từ trang Releases:
 **https://github.com/Tanhungccc/pulsar-observation-/releases/latest**
 
 Double-click để mở. Repo **không chứa dữ liệu quan sát** — tải theo `DATA_SOURCES.md`.
+
+## 0b. Trạng thái & lộ trình phần mềm
+
+Baseline hiện tại đã kiểm chứng xong (selftest 23/23, gui 48/48, nghiệm thu 67/67).
+Bản nâng cấp **đã chốt thiết kế nhưng CHƯA triển khai** — xem
+**`docs/07_kien_truc_he_thong_xu_ly.md`**:
+
+| Mốc | Nội dung |
+|---|---|
+| **M1** | Hồ sơ trạm/kính (`psr_site`) + module hằng số (`psr_constants`) — refactor không đổi hành vi |
+| **M2** | Dò DM 2 tầng + đọc theo khối (file 4 GB, RAM < 2 GB) |
+| **M2.5** | **Injection–recovery** — cổng bắt buộc, sinh `capability_matrix.md` |
+| **M3** | Dò chu kỳ mù + danh sách ứng viên |
+| **M4** | Chế độ quan sát `fixed` / `track` + pointing log |
+| **M5** | CLI `pulsarobs` + `report.json` schema v3 + `export-pac` |
 
 ## 1. Mở giao diện (cách dễ nhất)
 
@@ -106,13 +124,22 @@ không cần SDR.
 | `G` | **2.14 mK/Jy** | 1 Jy chỉ làm ăng-ten nóng thêm 2 mK |
 | `SEFD` | **70 kJy** (T_sys 150 K) | độ nhạy; Cas A = 5.8 K, pulsar 25 mJy = 0.054 mK |
 | `1σ` (2.4 MHz, 1 h) | **0.75 Jy** | thiết bị hiện có |
-| `B` cần cho 1 pulsar | **10–20 MHz @423 MHz** (hoặc 40 MHz nếu ở L-band) | B0950+08: 164 h → **2.5 h = 1 đêm** |
+| Cách nhanh nhất | **dùng back-end 50 MHz có sẵn của kính (L-band)** — không mua gì | Vela: SNR 8 trong **~3 phút** |
 
-**Kết luận trung tâm (đã cập nhật sau khi đối chiếu báo cáo TNU 2026)**: ở **L-band với
-RTL-SDR 2.4 MHz** pulsar không khả thi (164 h). Nhưng **chỉ cần đổi sang 423 MHz** —
-nơi pulsar sáng gấp 6–7 lần — cùng thiết bị đó đã cho **SNR 3.8 trong 2.5 h**; thêm SDR
-10–20 MHz thì **một đêm đạt SNR 7.7–10.9**. Đây là con đường ngắn nhất từ "không thể"
-đến "xong trong một đêm" (chi tiết: `docs/02` §4.3).
+**Kết luận trung tâm (cập nhật 2026-11 sau khi đối chiếu ATNF psrcat v2.9.0 và datasheet
+RTP37)**: hệ kính **đã có** L-band + back-end 50 MHz + tracking 0,01°, nên bài lab
+pulsar **không cần mua thêm gì**:
+
+| Mục tiêu | Cách làm | Thời gian đạt SNR 8 |
+|---|---|---|
+| **Vela (B0833-45)** | L-band 50 MHz, track | **~3 phút** |
+| **B0329+54** | L-band 50 MHz, track | **~25 phút** |
+| **B1641-45** | L-band 50 MHz, track | **~22 phút** |
+| B0950+08 | L-band (hoặc 423 MHz nếu mở rộng) | ~6,5 h (hoặc ~40 phút @423) |
+
+⚠ **Đính chính flux**: bảng cũ dùng S400/S1400 chép tay, sai tới ×7 (B0329+54 ghi
+200 mJy thay vì 1500; Vela 700 thay vì 5000) → "chỉ B0950+08 làm được" là **sai**.
+Chi tiết: `docs/02` §4.0 (đính chính), §4.4 (hệ RTP37), §4.5 (dự phòng thiết bị).
 
 ---
 

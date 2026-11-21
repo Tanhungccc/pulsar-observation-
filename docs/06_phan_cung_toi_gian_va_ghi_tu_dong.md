@@ -87,6 +87,39 @@ python record_unattended.py --mock --seconds 12 --analyze   # chạy thử end-t
 
 Dung lượng 4.5 h: **~4 GB** (64 kênh × 256 µs, uint8). Đủ ổ cứng bình thường.
 
+### 3b. Yêu cầu MỚI cho trình ghi (chưa triển khai — thuộc mốc M1/M2 của `docs/07`)
+
+Bốn thay đổi **bắt buộc** để xử lí pha tuyệt đối và hiệu chuẩn dài hạn. Hiện trình
+ghi chưa đáp ứng; ghi ở đây để không quên khi làm M1–M2:
+
+| # | Yêu cầu | Vì sao (nếu thiếu thì hỏng gì) |
+|---|---|---|
+| 1 | **Log gap theo CHỈ SỐ MẪU**: `{after_row, missing_samples, t_rel_s, reason}` | Log theo giây không đủ để dựng lại pha tuyệt đối khi fold/cộng dồn nhiều đêm |
+| 2 | **`segments[]`** (đoạn liên tục): `{i, first_row, rows, t_start_s}` | Xử lí theo đoạn thay vì zero-pad (xem `docs/07` §6.2) |
+| 3 | **Bandpass theo khối 600 s**: lưu `scale[t]` **và** `channels_flagged[t]` | Trôi gain theo nhiệt độ trong 4.5 h; RFI xuất hiện giữa phiên |
+| 4 | **Thời gian tuyệt đối**: `t0_mjd` + `ntp_offset_ms` (đầu và cuối phiên) | Không có thì P và pha không so được với catalogue; không cộng dồn đêm được |
+
+Thêm (khuyến nghị): `adc_clip_frac` mỗi khối (RTL-SDR 8-bit dễ bão hoà vì CW mạnh
+trong băng), `sha256` của file ghi, và `manifest.json` cho chính sách lưu trữ
+(xem `docs/07` §10).
+
+**Hợp đồng metadata cho tầng nhận dữ liệu** (`docs/07` §6c.1) — phải ghi ngay khi bắt
+đầu phiên, nếu thiếu thì phần mềm phải suy ra và đánh dấu `inferred`:
+
+```
+stage            RAW_IQ | CHANNELIZED_POWER | DEDISPERSED_TS
+hardware_id      rtlsdr_v5 | N6002 | ...
+adc_bits         8
+sample_rate_hz   2400000
+center_freq_hz   1420000000
+calibrated       true/false        (đã làm phẳng bandpass chưa)
+time_sync        GPS_PPS | NTP | LOCAL_CLOCK
+telemetry        {t_lna_c, t_rack_c, adc_clip_frac, tsys_k, y_factor_ts}
+```
+
+Cảm biến nhiệt LNA/rack là **tuỳ chọn nhưng nên có**: thiếu nó thì không bù được trôi
+gain và không gắn được tag `GAIN_DRIFT`.
+
 ---
 
 ## 4. Những lỗi THẬT đã gặp và sửa — đọc để không lặp
@@ -395,12 +428,39 @@ vì đó mới là thứ quyết định có dùng được ngoài thực địa
 | 6 | Nới guard theo mẫu → **file 4 ms lọt qua** | `test_4pol.fits` 200 mẫu |
 | 7 | `--selfcheck` bản đóng gói **quá nông** (chỉ 8 mục) | không kiểm IQ/PSRFITS/xuất file |
 
+### Ba chế độ nguồn dữ liệu (mục tiêu + SDR)
+
+**Người dùng không phải nhớ bật/tắt gì.** Ô "Nguồn dữ liệu" ở tab 1 có 3 chế độ,
+mặc định là *Tự động*:
+
+| Chế độ | Hành vi | Dùng khi nào |
+|---|---|---|
+| **Tự động** (mặc định) | Mở app và mỗi lần bấm ghi đều dò USB/driver: **có SDR → thu thật**, không có → **mô phỏng** kèm cảnh báo 🟡 và `mode="fallback-mock"` trong JSON | Quan sát hằng ngày — cắm dây là chạy |
+| **Bắt buộc MÔ PHỎNG** | Luôn mô phỏng, **không mở** thiết bị (không chiếm SDR) | Thử pipeline khi SDR vẫn đang cắm trên bàn |
+| **Bắt buộc SDR THẬT** | Không có/mất SDR → **báo lỗi và dừng**, tự thử kết nối lại 8 lần, **tuyệt đối không ghi dữ liệu giả** | Treo máy 4–5 giờ qua đêm |
+
+Nhãn trạng thái cạnh nút ghi: 🟢 *RTL-SDR (R820T2): đã kết nối* · 🟡 *Tự động →
+MÔ PHỎNG* · 🔴 *KHÔNG có SDR* — kèm nút **Làm mới** để dò lại sau khi cắm dây.
+Lý do chọn chế độ 3: nếu giữa đêm USB lỏng mà app âm thầm chuyển sang mô phỏng thì
+buổi quan sát **hỏng mà không ai biết**.
+
+### Mục tiêu không bị khoá cứng
+
+Ô "Mục tiêu" **gõ tay được** và có nút **＋ Mục tiêu…** để thêm/sửa/xoá mục tiêu
+ngoài danh mục (pulsar mới, nguồn continuum, mục tiêu tự đặt). Nhập tên, RA, Dec
+(`HH:MM:SS` → hiểu là giờ; chỉ số → độ), P, DM, flux, W50 (các ô sau bỏ trống được).
+Lưu ở `targets_user.json` cạnh ứng dụng; mục tiêu tự thêm xuất hiện ngay trong
+danh sách, trong bảng SNR và trong tra cứu DM tham chiếu của tab 2.
+
 ### Điều nghiệm thu KHẲNG ĐỊNH được
 
-- **Fallback đúng như yêu cầu**: cắm dây vào mà SDR không mở được → app **tự chuyển
-  chế độ mô phỏng**, ghi rõ lý do (`LibUSBError…`) vào log **và** sidecar JSON
-  (`mode="fallback-mock"`, `fallback="…"`), dữ liệu vẫn ghi đúng định dạng và đọc
-  lại được. Người dùng không bị mất buổi quan sát.
+- **Fallback đúng như yêu cầu**: ở chế độ *Tự động*, cắm dây vào mà SDR không mở
+  được → app **tự chuyển chế độ mô phỏng**, ghi rõ lý do (`LibUSBError…`) vào log
+  **và** sidecar JSON (`mode="fallback-mock"`, `fallback="…"`), dữ liệu vẫn ghi
+  đúng định dạng và đọc lại được. Người dùng không bị mất buổi quan sát.
+- **Chế độ *Bắt buộc SDR thật* thì KHÔNG fallback**: không có thiết bị → `RuntimeError`
+  và không tạo file; mất kết nối giữa phiên → ghi `sdr_errors`, `aborted`, đóng file
+  an toàn và giữ dữ liệu đã ghi.
 - **Mọi nút đều có tác dụng thật** và **không nút nào làm treo app**, kể cả khi
   bấm sai thứ tự, khi đang chạy job khác, hay khi đường dẫn không tồn tại.
 - **Xuất file chính xác**: đúng 1 thư mục/lần chạy, 4 tệp, số trong báo cáo **khớp**

@@ -177,6 +177,7 @@ def asset_path(name: str) -> str | None:
 # ép module dùng đúng thư mục data/results (không phụ thuộc nơi khởi chạy)
 import psr_detect            # noqa: E402
 import record_unattended     # noqa: E402
+import psr_hw                # noqa: E402
 import psr_targets           # noqa: E402
 psr_detect.RESULTS = RESULTS_DIR
 psr_detect.DATA = DATA_DIR
@@ -197,6 +198,126 @@ class QueueWriter:
 
     def flush(self):
         pass
+
+
+# Ba chế độ nguồn dữ liệu — hiển thị cho người dùng (giá trị thật là khoá)
+SOURCE_MODES = {
+    "auto": "Tự động (ưu tiên SDR thật — mặc định)",
+    "mock": "Bắt buộc MÔ PHỎNG (chạy thử pipeline, không cần/không đụng SDR)",
+    "real": "Bắt buộc SDR THẬT (mất kết nối → báo lỗi, không giả lập)",
+}
+
+
+class TargetDialog(tk.Toplevel):
+    """Thêm / sửa / xoá MỤC TIÊU TỰ THÊM (không cần sửa code).
+
+    Người dùng nhập: tên, RA, Dec (giờ-phút-giây hoặc độ), P, DM, flux, W50.
+    Chỉ tên + RA + Dec là bắt buộc; P/DM/flux dùng cho dự đoán SNR và kiểm chứng
+    nên có thể bỏ trống. Lưu vào targets_user.json cạnh ứng dụng.
+    """
+
+    FIELDS = (
+        ("name", "Tên mục tiêu", "vd: PSR J1234+56, Cas A, Mục tiêu 1", 26),
+        ("ra", "RA", "HH:MM:SS (giờ) hoặc độ, vd 12:34:56 / 188.733", 26),
+        ("dec", "Dec", "±DD:MM:SS hoặc độ, vd -05:12:34 / -5.209", 26),
+        ("P", "Chu kỳ P (s)", "bỏ trống nếu không biết — vd 0.253065", 26),
+        ("dm", "DM (pc cm⁻³)", "bỏ trống nếu không biết — vd 2.97", 26),
+        ("s408", "Flux 408 MHz (mJy)", "bỏ trống nếu không biết", 26),
+        ("s1400", "Flux 1400 MHz (mJy)", "bỏ trống nếu không biết", 26),
+        ("w408", "W50 408 MHz (ms)", "bỏ trống → dùng 25 ms để dự đoán", 26),
+        ("w1400", "W50 1400 MHz (ms)", "bỏ trống → dùng 6 ms để dự đoán", 26),
+        ("note", "Ghi chú", "nguồn gốc, mục đích quan sát…", 46),
+    )
+
+    def __init__(self, master, app: "App", edit_name: str | None = None):
+        super().__init__(master)
+        self.app = app
+        self.title("Mục tiêu — thêm/sửa (lưu vào targets_user.json)")
+        self.transient(master)
+        self.resizable(False, False)
+        self.vars = {}
+        f = ttk.Frame(self)
+        f.pack(fill="both", padx=10, pady=10)
+        tgt = psr_targets.find_target(edit_name) if edit_name else None
+        for r, (key, label, hint, w) in enumerate(self.FIELDS):
+            ttk.Label(f, text=label + ":").grid(row=r, column=0, sticky="w",
+                                                 padx=4, pady=3)
+            var = tk.StringVar()
+            ent = ttk.Entry(f, textvariable=var, width=w)
+            ent.grid(row=r, column=1, sticky="we", padx=4, pady=3)
+            ttk.Label(f, text=hint, foreground="#5f5f5f").grid(
+                row=r, column=2, sticky="w", padx=4)
+            self.vars[key] = var
+            if tgt and tgt.get(key) not in (None, ""):
+                v = tgt[key]
+                if key in ("ra", "dec"):
+                    var.set(f"{float(v):.5f}" if isinstance(v, (int, float)) else str(v))
+                else:
+                    var.set(str(v))
+        self.msg = ttk.Label(f, text="", foreground="#c00", wraplength=520,
+                             justify="left")
+        self.msg.grid(row=len(self.FIELDS), column=0, columnspan=3, sticky="w",
+                      padx=4, pady=(6, 0))
+        bf = ttk.Frame(f)
+        bf.grid(row=len(self.FIELDS) + 1, column=0, columnspan=3, sticky="we",
+                pady=(10, 0))
+        ttk.Button(bf, text="Lưu", command=self._save).pack(side="left", padx=4)
+        if tgt and tgt.get("custom"):
+            ttk.Button(bf, text="Xoá mục tiêu", command=self._delete).pack(
+                side="left", padx=4)
+        ttk.Button(bf, text="Đóng", command=self.destroy).pack(side="right", padx=4)
+        ttk.Label(f, foreground="#5f5f5f", wraplength=560, justify="left", text=(
+            "· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ."
+        )).grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="w",
+                padx=4, pady=(8, 0))
+        self.grab_set()
+
+    def _collect(self) -> dict:
+        d = {}
+        for key, var in self.vars.items():
+            txt = var.get().strip()
+            if not txt:
+                continue
+            if key == "name" or key == "note":
+                d[key] = txt
+            elif key == "ra":
+                d["ra"] = psr_targets.parse_ra(txt)
+            elif key == "dec":
+                d["dec"] = psr_targets.parse_dec(txt)
+            else:
+                d[key] = float(txt.replace(",", "."))
+        return d
+
+    def _save(self) -> None:
+        try:
+            d = self._collect()
+        except ValueError as exc:
+            self.msg.configure(text=f"Không đọc được số: {exc}")
+            return
+        problems = psr_targets.validate_target(d)
+        if problems:
+            self.msg.configure(text="Sửa giúp: " + "; ".join(problems))
+            return
+        try:
+            item = psr_targets.upsert_target(d)
+        except Exception as exc:
+            self.msg.configure(text=f"Không lưu được: {exc}")
+            return
+        self.app.log(f"Đã lưu mục tiêu '{item['name']}' "
+                     f"(RA {item['ra']:.4f}°, Dec {item['dec']:+.4f}°)", "ok")
+        self.app.refresh_target_list(select=item["name"])
+        self.destroy()
+
+    def _delete(self) -> None:
+        name = self.vars["name"].get().strip()
+        if not messagebox.askyesno("Xoá mục tiêu", f"Xoá '{name}' khỏi danh mục?"):
+            return
+        ok = psr_targets.delete_target(name)
+        self.app.log((f"Đã xoá mục tiêu '{name}'" if ok
+                      else f"'{name}' không có trong danh mục tự thêm"),
+                     "ok" if ok else "err")
+        self.app.refresh_target_list()
+        self.destroy()
 
 
 class App:
@@ -271,35 +392,48 @@ class App:
         f.pack(fill="x", padx=8, pady=8)
 
         ttk.Label(f, text="Mục tiêu:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
-        names = [t["name"] for t in psr_targets.PULSARS]
-        self.rec_target = ttk.Combobox(f, values=names, width=16)
+        self.rec_target = ttk.Combobox(f, values=[], width=18)
+        # CHO PHÉP GÕ TAY: quan sát nguồn ngoài danh mục, không bị khoá cứng
+        self.rec_target.configure(state="normal")
         self.rec_target.set("B0950+08")
-        self.rec_target.grid(row=0, column=1, padx=4, pady=4)
+        self.rec_target.grid(row=0, column=1, padx=4, pady=4, sticky="we")
+        ttk.Button(f, text="＋ Mục tiêu…", width=13,
+                   command=self.manage_targets).grid(row=0, column=2, padx=(0, 6))
 
-        ttk.Label(f, text="Băng (MHz):").grid(row=0, column=2, sticky="w", padx=4)
+        ttk.Label(f, text="Băng (MHz):").grid(row=0, column=3, sticky="w", padx=4)
         self.rec_band = ttk.Combobox(f, values=["423", "1420"], width=6)
         self.rec_band.set("423")
-        self.rec_band.grid(row=0, column=3, padx=4)
+        self.rec_band.grid(row=0, column=4, padx=4)
 
-        ttk.Label(f, text="Thời lượng (giờ):").grid(row=0, column=4, sticky="w", padx=4)
+        ttk.Label(f, text="Thời lượng (giờ):").grid(row=0, column=5, sticky="w", padx=4)
         self.rec_hours = ttk.Spinbox(f, from_=0.5, to=8.0, increment=0.5, width=6)
         self.rec_hours.set(4.5)
-        self.rec_hours.grid(row=0, column=5, padx=4)
+        self.rec_hours.grid(row=0, column=6, padx=4)
 
         ttk.Label(f, text="Kênh:").grid(row=1, column=0, sticky="w", padx=4)
         self.rec_nchan = ttk.Spinbox(f, from_=16, to=512, increment=16, width=6)
         self.rec_nchan.set(64)
         self.rec_nchan.grid(row=1, column=1, padx=4, sticky="w")
 
-        ttk.Label(f, text="tsamp (µs):").grid(row=1, column=2, sticky="w", padx=4)
+        ttk.Label(f, text="tsamp (µs):").grid(row=1, column=3, sticky="w", padx=4)
         self.rec_tsamp = ttk.Spinbox(f, from_=64, to=2000, increment=64, width=6)
         self.rec_tsamp.set(256)
-        self.rec_tsamp.grid(row=1, column=3, padx=4, sticky="w")
+        self.rec_tsamp.grid(row=1, column=4, padx=4, sticky="w")
 
-        self.rec_mock = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f, text="Chế độ MÔ PHỎNG (không cần SDR — dùng khi chưa cắm thiết bị)",
-                        variable=self.rec_mock).grid(row=1, column=4, columnspan=2,
-                                                     sticky="w", padx=4)
+        ttk.Label(f, text="Nguồn dữ liệu:").grid(row=2, column=0, sticky="w",
+                                                 padx=4, pady=(6, 4))
+        self.rec_source = ttk.Combobox(
+            f, values=list(SOURCE_MODES.values()), state="readonly", width=44)
+        self.rec_source.set(SOURCE_MODES["auto"])
+        self.rec_source.grid(row=2, column=1, columnspan=3, sticky="we", padx=4,
+                             pady=(6, 4))
+        self.rec_source.bind("<<ComboboxSelected>>", lambda _e: self.refresh_hw_status())
+
+        # nhãn trạng thái phần cứng ngay cạnh vùng ghi + nút Làm mới
+        self.rec_hw_label = ttk.Label(f, text="… đang dò thiết bị", width=46)
+        self.rec_hw_label.grid(row=2, column=4, columnspan=2, sticky="w", padx=4)
+        ttk.Button(f, text="Làm mới", width=9,
+                   command=self.refresh_hw_status).grid(row=2, column=6, sticky="w")
 
         bf = ttk.Frame(self.tab_rec)
         bf.pack(fill="x", padx=8)
@@ -313,12 +447,17 @@ class App:
         ttk.Button(bf, text="Mở thư mục dữ liệu",
                    command=lambda: self.open_dir(DATA_DIR)).pack(side="left", padx=4)
 
+        self.refresh_target_list(select="B0950+08")
+        self.rec_source.set(SOURCE_MODES["auto"])
+        self.root.after_idle(lambda: self.refresh_hw_status())
+
         info = ttk.LabelFrame(self.tab_rec, text="Cách dùng")
         info.pack(fill="both", expand=True, padx=8, pady=8)
         ttk.Label(info, justify="left", wraplength=1000, text=(
             "· Trước khi treo chảo: python psr_targets.py --transit (hoặc tab 3) để biết giờ transit.\n"
-            "· Bật MÔ PHỎNG khi chưa cắm RTL-SDR: toàn bộ chuỗi ghi/đọc/phát hiện vẫn chạy để kiểm chứng.\n"
-            "· Khi có SDR thật: bỏ tick mô phỏng, chương trình tự phát hiện thiết bị và tự fallback linh kiện.\n"
+            "· Nguồn dữ liệu mặc định TỰ ĐỘNG: có SDR là thu thật, không có thì mô phỏng\n"
+            "  (nhãn 🟡 cảnh báo ngay cạnh). Treo máy qua đêm nên chọn BẮT BUỘC SDR THẬT.\n"
+            "· Sau khi cắm/rút dây: bấm Làm mới cạnh nhãn trạng thái để dò lại thiết bị.\n"
             "· File ghi: data/<ngày>/<target>_<UTC>.fil + .json (metadata: chuỗi phần cứng, ppm, gap log).\n"
             "· Sáng hôm sau: sang tab 2 chọn file .fil → PHÁT HIỆN để ra báo cáo + biểu đồ."
         )).pack(anchor="w", padx=8, pady=8)
@@ -393,9 +532,10 @@ class App:
         bf.pack(fill="x", padx=8)
         for txt, cmd in (("Giờ transit (để chảo cố định)", self.tgt_transit),
                          ("Quan sát ban ngày", self.tgt_daytime),
-                         ("Bảng SNR 10 pulsar × 5 cấu hình", self.tgt_snr),
+                         ("Bảng SNR (mọi mục tiêu) × 5 cấu hình", self.tgt_snr),
                          ("Đại lượng suy ra (B, tuổi, Ė)", self.tgt_derived),
-                         ("Nguồn continuum khác", self.tgt_objects)):
+                         ("Nguồn continuum khác", self.tgt_objects),
+                         ("＋ Quản lý mục tiêu…", self.manage_targets)):
             ttk.Button(bf, text=txt, command=cmd).pack(side="left", padx=4, pady=4)
 
         lf = ttk.LabelFrame(self.tab_tgt, text="Bảng kết quả")
@@ -579,7 +719,93 @@ class App:
         os.startfile(path)                      # Windows
 
     # ------------------------------------------------------------ TAB 1 actions
+    # ---- nguồn dữ liệu: tự dò SDR, hiện trạng thái, cho ép chế độ
+    def _source_key(self) -> str:
+        """Khoá chế độ đang chọn ('auto' | 'mock' | 'real')."""
+        txt = self.rec_source.get()
+        for k, v in SOURCE_MODES.items():
+            if v == txt:
+                return k
+        return "auto"
+
+    def refresh_hw_status(self) -> None:
+        """Dò SDR và cập nhật nhãn trạng thái (🟢 thật / 🟡 mô phỏng)."""
+        mode = self._source_key()
+        probe = psr_hw.probe_sdr()
+        if mode == "mock":
+            text, col = "🟡 Bắt buộc MÔ PHỎNG — dữ liệu không phải thu thật", "#b36b00"
+        elif probe["found"]:
+            tun = f" ({probe['tuner']})" if probe.get("tuner") else ""
+            text = f"🟢 {probe['name']}{tun}: đã kết nối"
+            col = "#1a7f37"
+        elif mode == "real":
+            text = f"🔴 KHÔNG có SDR — chế độ bắt buộc thật sẽ BÁO LỖI"
+            col = "#c62828"
+        else:
+            text = "🟡 Tự động → MÔ PHỎNG (không thấy SDR)"
+            col = "#b36b00"
+        try:
+            self.rec_hw_label.configure(text=text, foreground=col)
+        except Exception:
+            pass
+        self._last_probe = probe
+        return probe
+
+    # ---- mục tiêu: danh sách linh hoạt (thêm/sửa/xoá, gõ tay tên bất kỳ)
+    def refresh_target_list(self, select: str | None = None,
+                            keep_current: bool = True) -> None:
+        """Nạp lại danh sách mục tiêu (có sẵn + tự thêm) vào combobox."""
+        items = psr_targets.all_pulsars()
+        names = [t["name"] for t in items]
+        cur = select or self.rec_target.get()
+        if keep_current and cur and str(cur).strip().lower() not in {
+                n.lower() for n in names}:
+            names.append(cur)          # giữ tên người dùng đang gõ
+        self.rec_target.configure(values=names)
+        if select:
+            self.rec_target.set(select)
+        elif not keep_current:
+            self.rec_target.set(names[0] if names else "")
+        self._target_items = items
+
+    def manage_targets(self) -> None:
+        """Mở hộp thoại thêm/sửa mục tiêu (mặc định là mục tiêu đang chọn)."""
+        name = self.rec_target.get().strip()
+        tgt = psr_targets.find_target(name)
+        TargetDialog(self.root, self,
+                     edit_name=name if (tgt and tgt.get("custom")) else None)
+
+    def resolve_target(self, name: str) -> dict | None:
+        """Tra mục tiêu; nếu chưa có thì hỏi người dùng khai báo ngay.
+
+        Trả về dict mục tiêu, hoặc None nếu người dùng chọn "ghi không cần toạ độ"
+        (vẫn ghi được — chỉ không dự đoán được transit/SNR).
+        """
+        name = (name or "").strip()
+        if not name:
+            messagebox.showerror("Thiếu mục tiêu", "Hãy nhập tên mục tiêu.")
+            return None
+        tgt = psr_targets.find_target(name)
+        if tgt:
+            return tgt
+        ans = messagebox.askyesnocancel(
+            "Mục tiêu chưa có trong danh mục",
+            f"'{name}' không có trong danh mục, nên không tính được giờ transit / "
+            f"SNR dự đoán.\n\nCó = khai báo ngay (RA, Dec, P, DM…)\n"
+            f"Không = vẫn ghi dữ liệu, chỉ không có dự đoán\n"
+            f"Cancel = quay lại")
+        if ans is None:
+            return None
+        if ans:
+            TargetDialog(self.root, self, edit_name=name)
+            return psr_targets.find_target(name)   # có thể None nếu chưa lưu
+        return dict(name=name, custom=True, ra=None, dec=None)
+
     def start_recording(self):
+        target_name = self.rec_target.get().strip()
+        tgt = self.resolve_target(target_name)
+        if tgt is None:
+            return
         try:
             hours = float(self.rec_hours.get())
             nchan = int(self.rec_nchan.get())
@@ -587,15 +813,47 @@ class App:
         except ValueError:
             messagebox.showerror("Lỗi", "Giờ/kênh/tsamp phải là số")
             return
-        mock = self.rec_mock.get()
-        target = self.rec_target.get()
+        source = self._source_key()
+        probe = self.refresh_hw_status()
+        if source == "real" and not probe["found"]:
+            messagebox.showerror(
+                "Không có SDR",
+                "\n".join([
+                    "Đang chọn 'Bắt buộc SDR THẬT' nhưng không tìm thấy thiết bị:",
+                    str(probe.get("error") or "không rõ lý do"),
+                    "",
+                    "Cắm lại thiết bị rồi bấm Làm mới, hoặc đổi sang 'Tự động'.",
+                ]))
+            return
+        if source == "auto" and not probe["found"]:
+            if not messagebox.askokcancel(
+                    "Không thấy SDR — sẽ ghi MÔ PHỎNG",
+                    "\n".join([
+                        "Không tìm thấy RTL-SDR:",
+                        "   " + str(probe.get("error") or "không rõ lý do"),
+                        "",
+                        "OK = ghi dữ liệu MÔ PHỎNG (để kiểm chứng chuỗi)",
+                        "Cancel = dừng lại để cắm thiết bị",
+                    ])):
+                return
+        target = tgt["name"]
         band = self.rec_band.get()
         self.log(f"Bắt đầu ghi: {target} @ {band} MHz, {hours} h, "
-                 f"{nchan} kênh × {tsamp:.0f} µs, mock={mock}")
+                 f"{nchan} kênh × {tsamp:.0f} µs, nguồn={source}")
+        if source != "mock":
+            self.log("   " + ("SDR: đã thấy thiết bị" if probe["found"]
+                              else "SDR: KHÔNG thấy → mô phỏng"),
+                     "ok" if probe["found"] else "err")
+        if tgt.get("ra") is not None and tgt.get("dec") is not None:
+            try:
+                self.log(f"   mục tiêu: RA {tgt['ra']:.4f}°, Dec {tgt['dec']:+.4f}°"
+                         + ("  [tự thêm]" if tgt.get("custom") else ""))
+            except Exception:
+                pass
 
         def job():
             record_unattended.run_session(
-                target=target, hours=hours, band=band, mock=mock,
+                target=target, hours=hours, band=band, source=source,
                 nchan=nchan, tsamp_us=tsamp,
                 out_dir=os.path.join(DATA_DIR, datetime.now().strftime("%Y%m%d")),
                 stop_event=self.stop_event)

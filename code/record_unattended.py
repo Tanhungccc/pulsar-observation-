@@ -257,11 +257,28 @@ class ChanStream:
 
 # ============================================================ phiên ghi
 def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
-                out_dir: str | None = None, mock: bool = False,
+                out_dir: str | None = None, mock: bool | None = None,
                 seconds: float | None = None, analyze: bool = False,
                 nchan: int = 64, tsamp_us: float = 256.0,
                 gain_db: float | None = None, gap_every_s: float = 0.0,
-                stop_event=None) -> dict:
+                stop_event=None, source: str | None = None,
+                reconnect_tries: int = 8) -> dict:
+    """Ghi một phiên. `source`: "auto" | "mock" | "real".
+
+    - auto (mặc định): dò SDR — có thì thu THẬT, không có thì MÔ PHỎNG (kèm
+      cảnh báo trong metadata: mode = "fallback-mock").
+    - mock: bắt buộc mô phỏng (để thử pipeline, không cần rút cáp SDR).
+    - real: BẮT BUỘC SDR thật. Không có / mất kết nối giữa phiên → BÁO LỖI và
+      dừng, TUYỆT ĐỐI không âm thầm ghi dữ liệu mô phỏng giả (một phiên 4–5 h
+      sẽ bị hỏng mà không ai biết). Tự thử kết nối lại `reconnect_tries` lần.
+    """
+    if source is None:
+        # tương thích API cũ: mock=True → mô phỏng; mock=False/None → "Tự động"
+        # (chế độ nghiêm ngặt phải chỉ định rõ source="real")
+        source = "mock" if mock else "auto"
+    source = str(source).lower()
+    if source not in ("auto", "mock", "real"):
+        raise ValueError(f"source phải là auto/mock/real, nhận '{source}'")
     chain = psr_hw.detect_chain(band, goal="unattended")
     print(chain.summary())
     dur = seconds if seconds else hours * 3600.0
@@ -288,6 +305,20 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
     rows_expected = 0
     MOCK_CAP_S = 180.0          # giới hạn mô phỏng (RAM/thời gian)
     meta["fallback"] = None
+    meta["source_requested"] = source
+    probe = psr_hw.probe_sdr()
+    meta["sdr_probe"] = {k: probe.get(k) for k in
+                         ("found", "name", "tuner", "serial", "n_devices", "error")}
+    print(f"→ Nguồn yêu cầu: {source.upper()} | dò SDR: "
+          + (f"THẤY {probe['name']}"
+             + (f" ({probe['tuner']})" if probe.get('tuner') else "")
+             if probe["found"] else f"KHÔNG THẤY ({probe.get('error')})"))
+    if source == "real" and not probe["found"]:
+        shutil.rmtree(out_dir, ignore_errors=True) if False else None
+        raise RuntimeError(
+            "Không tìm thấy RTL-SDR nhưng đang ở chế độ BẮT BUỘC SDR thật: "
+            + str(probe.get("error") or "không rõ lý do")
+            + ". Cắm lại thiết bị / kiểm tra driver, hoặc đổi sang 'Tự động'.")
 
     def _start_mock(reason: str):
         """Khởi động nguồn mô phỏng (dùng trực tiếp, hoặc khi KHÔNG có SDR)."""
@@ -307,10 +338,15 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
         return src, wr
 
     src = wr = None
+    use_mock = (source == "mock") or (source == "auto" and not probe["found"])
     try:
-        if mock:
-            src, wr = _start_mock("")
-            meta["mode"] = "mock"
+        if use_mock:
+            _reason = ("" if source == "mock" else
+                       f"tự động: {probe.get('error') or 'không có SDR'}")
+            if source == "auto":
+                meta["fallback"] = _reason     # ghi rõ vì sao phải mô phỏng
+            src, wr = _start_mock(_reason)
+            meta["mode"] = "mock" if source == "mock" else "fallback-mock"
             while True:
                 if stop_event is not None and stop_event.is_set():
                     print("→ dừng bởi lệnh DỪNG")
@@ -322,13 +358,15 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
                 rows_expected += 1
             meta["gaps"] = src.gaps
         else:
-            # ---- FALLBACK TỰ ĐỘNG: không có SDR/hỏng driver → chạy mô phỏng
-            # Đây là yêu cầu "hệ thống phải fallback được" khi người dùng chưa
-            # cắm thiết bị hoặc driver lỗi.
+            # ---- THU THẬT. Chế độ "real": lỗi là LỖI, không được giả lập.
             try:
                 src = RtlSource(2.4e6, fc * 1e6, gain)
             except Exception as e:
                 reason = f"không mở được SDR ({type(e).__name__}: {e})"
+                if source == "real":
+                    raise RuntimeError(
+                        "Đang ở chế độ BẮT BUỘC SDR thật nhưng không mở được "
+                        f"thiết bị: {reason}. KHÔNG ghi dữ liệu mô phỏng thay thế.")
                 meta["fallback"] = reason
                 print(f"→ KHÔNG CÓ SDR: {reason}")
                 print("→ TỰ ĐỘNG CHUYỂN SANG CHẾ ĐỘ MÔ PHỎNG (vẫn ghi "
@@ -360,7 +398,46 @@ def run_session(target: str = "B0950+08", hours: float = 4.5, band: str = "423",
                     if stop_event is not None and stop_event.is_set():
                         print("→ dừng bởi lệnh DỪNG — đóng file an toàn")
                         break
-                    iq = src.read_iq(block)
+                    try:
+                        iq = src.read_iq(block)
+                    except Exception as e:
+                        # USB lỏng / rớt driver giữa đêm: KHÔNG được tạo dữ liệu giả
+                        err = f"{type(e).__name__}: {e}"
+                        meta.setdefault("sdr_errors", []).append(
+                            dict(t_rel_s=round(time.monotonic() - t_wall0, 1),
+                                 error=err))
+                        print(f"   ⚠ MẤT SDR: {err} — thử kết nối lại…")
+                        ok = False
+                        for k in range(1, reconnect_tries + 1):
+                            time.sleep(min(2.0 * k, 10.0))
+                            if stop_event is not None and stop_event.is_set():
+                                break
+                            try:
+                                src.close()
+                            except Exception:
+                                pass
+                            try:
+                                src = RtlSource(2.4e6, fc * 1e6, gain)
+                                print(f"   ✓ kết nối lại được (lần {k})")
+                                ok = True
+                                break
+                            except Exception as e2:
+                                print(f"      lần {k}/{reconnect_tries}: {e2}")
+                        if not ok:
+                            if source == "real":
+                                meta["aborted"] = "mất SDR, không kết nối lại được"
+                                meta["error"] = err
+                                print("→ DỪNG PHIÊN: chế độ BẮT BUỘC SDR thật nên "
+                                      "không chuyển sang mô phỏng. Dữ liệu đã ghi "
+                                      "được giữ nguyên.")
+                                break
+                            meta["fallback"] = f"mất SDR giữa phiên: {err}"
+                            print("→ chế độ Tự động: chuyển tiếp sang MÔ PHỎNG")
+                            src, _wr2 = _start_mock(err)
+                            wr = _wr2
+                            meta["mode"] = "fallback-mock"
+                            continue
+                        continue
                     for row in cs.push(iq):
                         wr.write_row(row)
                         rows_expected += 1

@@ -100,6 +100,43 @@ def ref_from_catalogue(path: str = "", source: str = "") -> dict | None:
     return None
 
 
+MAX_STEM = 60          # giới hạn tên thư mục kết quả (an toàn MAX_PATH Windows)
+
+
+def safe_stem(name: str) -> str:
+    """Tên thư mục kết quả AN TOÀN: bỏ ký tự cấm, cắt ngắn, giữ duy nhất.
+
+    Vì sao cần: tên file dữ liệu có thể rất dài hoặc chứa ký tự Windows không
+    cho phép; ghép thẳng vào đường dẫn results/ có thể vượt giới hạn đường dẫn
+    hoặc gây OSError khó hiểu khi ghi ảnh.
+    """
+    import hashlib
+    raw = str(name or "").strip()
+    bad = '<>:"/' + chr(92) + '|?*'
+    s = "".join("_" if c in bad else c for c in raw).strip(" .")
+    if not s:
+        s = time.strftime("%Y%m%d")
+    if len(s) > MAX_STEM:
+        h = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        s = s[: MAX_STEM - 9].rstrip() + "~" + h
+    return s
+
+
+def _savefig(fig, path: str, tries: int = 4) -> None:
+    """savefig có thử lại: Windows/AV có thể khoá file trong tích tắc."""
+    for k in range(tries):
+        try:
+            fig.savefig(path)
+            return
+        except OSError as e:
+            if k == tries - 1:
+                raise OSError(
+                    f"không ghi được {path} sau {tries} lần: {e}. "
+                    f"Kiểm tra dung lượng ổ đĩa / quyền ghi / phần mềm diệt virus."
+                ) from e
+            time.sleep(0.4 * (k + 1))
+
+
 def _jsonify(o):
     """Chuyển numpy bool/int/float → kiểu Python chuẩn để json.dump không lỗi."""
     if isinstance(o, dict):
@@ -142,9 +179,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     os.makedirs(RESULTS, exist_ok=True)
     # GOM sản phẩm của MỘT lần chạy vào MỘT thư mục: tên theo file dữ liệu
     # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
-    stem = os.path.splitext(os.path.basename(path))[0]
-    if not stem:
-        stem = time.strftime("%Y%m%d")
+    stem = safe_stem(os.path.splitext(os.path.basename(path))[0])
     out_dir = os.path.join(RESULTS, stem)
     os.makedirs(out_dir, exist_ok=True)
     m: dict = {"file": os.path.basename(path), "out_dir": out_dir, "stage": {}}
@@ -510,7 +545,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     fig.tight_layout()
     pp.finalize(fig)
     f1 = os.path.join(out_dir, "fig1_overview.png")
-    fig.savefig(f1); plt.close(fig)
+    _savefig(fig, f1); plt.close(fig)
 
     # ================= HÌNH 2: 4 panel phát hiện
     fig, ax = plt.subplots(2, 2, figsize=(12.0, 8.2))
@@ -597,7 +632,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     else:
         print("   ✔ bố cục hình: chú giải/chú thích không đè dữ liệu, không tràn khung")
     f2 = os.path.join(out_dir, "fig2_detection.png")
-    fig.savefig(f2); plt.close(fig)
+    _savefig(fig, f2); plt.close(fig)
 
     m["files"] = [os.path.basename(f1), os.path.basename(f2)]
     with open(os.path.join(out_dir, "detect_metrics.json"), "w",

@@ -143,6 +143,67 @@ def t_rec_from_nf(nf_db: float) -> float:
     return 290.0 * (10 ** (nf_db / 10.0) - 1.0)
 
 
+def probe_sdr() -> dict:
+    """Dò SDR ĐANG CẮM THẬT (không chỉ kiểm tra đã cài thư viện chưa).
+
+    Dùng cho chế độ "Tự động": mở app và mỗi lần bắt đầu ghi đều gọi hàm này
+    để quyết định thu thật hay mô phỏng. Trả về dict luôn có khoá 'found'.
+    Không bao giờ ném exception (chỉ ghi 'error' để GUI hiển thị).
+    """
+    info = dict(found=False, kind=None, part_id=None, name=None, tuner=None,
+                serial=None, n_devices=0, error=None)
+    try:
+        from rtlsdr import RtlSdr
+    except Exception as e:
+        info["error"] = f"chưa cài pyrtlsdr ({type(e).__name__})"
+        # vẫn thử các backend khác bên dưới
+    else:
+        try:
+            n = int(RtlSdr.get_device_count())
+        except Exception:
+            n = 0
+        info["n_devices"] = n
+        if n > 0:
+            try:
+                dev = RtlSdr(0)
+                try:
+                    info["tuner"] = str(dev.get_tuner_type())
+                except Exception:
+                    pass
+                try:
+                    info["serial"] = str(dev.get_serial_number())
+                except Exception:
+                    pass
+                dev.close()
+                info.update(found=True, kind="rtlsdr", part_id="rtlsdr_v5",
+                            name="RTL-SDR", error=None)
+                return info
+            except Exception as e:
+                info["error"] = f"mở thiết bị lỗi: {type(e).__name__}: {e}"
+        else:
+            info["error"] = "không thấy thiết bị RTL-SDR nào trên USB"
+    # backend khác (SoapySDR / Pluto qua libiio)
+    for mod, part, name in (("SoapySDR", "soapy", "SoapySDR (chung)"),
+                            ("iio", "pluto", "PlutoSDR (libiio)")):
+        try:
+            __import__(mod)
+        except Exception:
+            continue
+        info.update(found=True, kind=mod.lower(), part_id=part, name=name)
+        info["error"] = None
+        return info
+    return info
+
+
+def probe_summary() -> str:
+    """Câu mô tả ngắn gọn trạng thái phần cứng để hiện trên GUI."""
+    p = probe_sdr()
+    if p["found"]:
+        t = f" ({p['tuner']})" if p.get("tuner") else ""
+        return f"Đã kết nối: {p['name']}{t}"
+    return f"Không tìm thấy SDR — {p.get('error') or 'không rõ lý do'}"
+
+
 def detect_sdr(have: dict | None = None) -> str | None:
     """Thử phát hiện SDR thật; trả về part_id hoặc None."""
     if have and have.get("sdr"):

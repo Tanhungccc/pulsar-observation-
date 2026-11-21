@@ -240,9 +240,21 @@ def s2_fallback(fx):
     out = os.path.join(TMP, "fb")
     m = quiet(ru.run_session, target="FB", hours=4 / 3600, band="423",
               mock=False, out_dir=out)
-    chk("KHÔNG có SDR → tự chuyển mô phỏng (không crash)",
+    chk("KHÔNG có SDR → Tự động chuyển mô phỏng (không crash)",
         m.get("mode") == "fallback-mock" and m.get("fallback"),
-        f"mode={m.get('mode')}")
+        f"mode={m.get('mode')}, lý do={m.get('fallback')}")
+    # chế độ NGHIÊM NGẶT: source="real" không có SDR → phải LỖI, không tạo file
+    out_real = os.path.join(TMP, "real_nosdr")
+    raised = None
+    try:
+        quiet(ru.run_session, target="REALX", hours=2 / 3600, band="423",
+              source="real", out_dir=out_real)
+    except Exception as e:
+        raised = e
+    made = os.listdir(out_real) if os.path.isdir(out_real) else []
+    chk("chế độ 'Bắt buộc SDR thật' → báo lỗi, KHÔNG ghi dữ liệu giả",
+        isinstance(raised, RuntimeError) and not any(f.endswith(".fil") for f in made),
+        f"{type(raised).__name__}: {str(raised)[:60]}" if raised else "không báo lỗi")
     chk("dữ liệu fallback vẫn đọc lại được (round-trip)",
         m.get("roundtrip_ok") is True, f"{m.get('rows')} dòng")
     side = [f for f in os.listdir(out) if f.endswith(".json")][0]
@@ -318,10 +330,14 @@ def s3_outputs(fx):
         p = os.path.join(TMP, name)
         shutil.copy(fx["fil8"], p)
         mm = quiet(psr_detect.detect, p)
-        d = os.path.join(psr_detect.RESULTS, os.path.splitext(name)[0])
+        d = os.path.join(psr_detect.RESULTS,
+                         psr_detect.safe_stem(os.path.splitext(name)[0]))
         chk(f"tên file {label}: chạy + xuất đúng thư mục",
             mm.get("status") == "ok" and os.path.isdir(d),
-            f"status={mm.get('status')}")
+            f"status={mm.get('status')}, thư mục {os.path.basename(d)[:40]}")
+        chk(f"tên file {label}: thư mục kết quả không quá dài",
+            len(os.path.basename(d)) <= psr_detect.MAX_STEM,
+            f"{len(os.path.basename(d))} ký tự (giới hạn {psr_detect.MAX_STEM})")
 
     # input hỏng → báo cáo chẩn đoán, không có ảnh giả
     m = quiet(psr_detect.detect, fx["zero"])
@@ -422,7 +438,7 @@ def s4_gui():
     app.det_dm.delete(0, "end"); app.det_dm.insert(0, "0")
 
     # khoá khi đang bận
-    app.rec_hours.set(30 / 3600); app.rec_mock.set(True)
+    app.rec_hours.set(30 / 3600); app.rec_source.set(gui_app.SOURCE_MODES["mock"])
     app.start_recording()
     root.update()
     busy1 = app.busy

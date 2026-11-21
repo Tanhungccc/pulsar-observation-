@@ -110,6 +110,38 @@ Cách đọc nhanh (L-band, T_sys 150 K):
 Nói cách khác: **băng thông là đòn bẩy số một** (`SNR ∝ √B`), tích luỹ là đòn bẩy
 số hai (`∝ √t`), `T_sys` là số ba (`∝ 1/T_sys`).
 
+### 4.0 ⚠ ĐÍNH CHÍNH DANH MỤC (2026-11) — đọc trước khi dùng mọi bảng SNR
+
+Bảng §4.1 dưới đây được lập bằng **thông lượng gần đúng**, và đã đối chiếu lại với
+**ATNF psrcat v2.9.0** (tải `psrcat.db`, 4.503 pulsar): nhiều giá trị **sai tới ×7**.
+Nguyên nhân: (a) `S400`/`S1400` bị chép tay; (b) `W50` của ATNF **đo ở 1.4 GHz**
+nhưng bị dùng như W50 ở 400 MHz.
+
+| Pulsar | S400 cũ → **ATNF** | S1400 cũ → **ATNF** | W50 cũ → **ATNF @1.4 GHz** |
+|---|---|---|---|
+| B0950+08 | 700 → **400** | 110 → **100** | 25 → **8,6 ms** |
+| B1929+10 | 350 → **303** | 45 → **29** | 30 → **6,0 ms** |
+| B1133+16 | 250 → **257** | 35 → **20** | 40 → **5,8 ms** |
+| **B0329+54** | 200 → **1500** | 25 → **203** | 40 → **6,6 ms** |
+| **B0833-45 (Vela)** | 700 → **5000** | 110 → **1050** | 20 → **1,7 ms** |
+| B0531+21 (Cua) | 650 → 646 | 14 → 14 | 10 → **3,0 ms** |
+| B1641-45 | 350 → **375** | 60 → **300** | 60 → **8,0 ms** |
+
+Hệ quả: **Vela và B0329+54 sáng hơn B0950+08 nhiều lần**, không phải ngược lại.
+
+`psr_targets.py` đã sửa: lấy `S400/S1400/W50(1.4 GHz)` từ ATNF, và **W50 tại tần số
+quan sát được tính** bằng mô hình (không chép tay):
+
+```
+W_int(ν) = W50(1.4 GHz) · (1400/ν)^0.3
+τ_sc(ν)  = 1.3e-4 · (DM/100)^2.2 · (ν/1000)^-4.4   [s]     (Bhat+2004)
+W(ν)     = sqrt(W_int² + τ_sc²)
+```
+
+Kiểm tra mô hình: B1641-45 (DM 479) có **τ_sc(423 MHz) ≈ 180 ms** → bị xóa sạch ở
+423 MHz, trong khi ở 1.4 GHz chỉ 4 ms → **quan sát tốt ở L-band**. Đây là lý do
+phải có số hạng tán xạ, không chỉ giãn nội tại.
+
 ### 4.1 SNR dự đoán — 5 cấu hình × 10 pulsar
 
 `A` = hiện có (RTL-SDR + SAWbird, 2.4 MHz); `B` = SDR 10 MHz; `C` = SDR 40 MHz;
@@ -117,51 +149,35 @@ số hai (`∝ √t`), `T_sys` là số ba (`∝ 1/T_sys`).
 
 **SNR trong 1 giờ / 6 giờ:**
 
-| Pulsar | P (ms) | DM | A | B | C | D | E |
+**Bảng TÁI SINH 2026-11 từ ATNF + mô hình W(ν) — thay toàn bộ số cũ:**
+
+| Pulsar | P (ms) | DM | A (L 2.4) | B (L 10) | C (L 40) | D (423 2.4) | E (423 8) |
 |---|---|---|---|---|---|---|---|
-| **B0950+08** | 253 | 3.0 | 0.9 / 2.3 | 2.2 / 5.4 | **4.8 / 11.7** | 1.4 / 3.4 | 3.1 / 7.5 |
-| B1929+10 | 227 | 3.2 | 0.4 / 0.9 | 0.9 / 2.1 | 1.9 / 4.5 | 0.6 / 1.5 | 1.3 / 3.2 |
-| B1133+16 | 1188 | 4.8 | 0.5 / 1.2 | 1.2 / 2.9 | 2.6 / 6.3 | 0.9 / 2.2 | 2.0 / 4.8 |
-| B0329+54 | 715 | 26.8 | 0.3 / 0.6 | 0.6 / 1.5 | 1.3 / 3.2 | 0.5 / 1.3 | 1.2 / 2.9 |
-| B0833−45 (Vela) | 89 | 67.9 | 0.8 / 1.9 | 1.8 / 4.5 | **4.0 / 9.8** | 0.9 / 2.1 | 1.9 / 4.6 |
-| B0531+21 (Cua) | 33 | 56.8 | 0.06 / 0.14 | 0.14 / 0.34 | 0.30 / 0.74 | 0.66 / 1.6 | 1.5 / 3.5 |
-| J0437−4715 | 5.8 | 2.6 | 0.6 / 1.4 | 1.4 / 3.4 | 3.0 / 7.3 | 0.2 / 0.4 | 0.4 / 0.9 |
-| B1641−45 | 455 | 475 | 0.4 / 0.9 | 0.9 / 2.1 | 1.9 / 4.6 | 0.6 / 1.5 | 1.3 / 3.2 |
-| B1706−44 | 102 | 75.7 | 0.3 / 0.7 | 0.7 / 1.7 | 1.5 / 3.7 | 0.4 / 1.0 | 0.9 / 2.2 |
-| B1937+21 | 1.6 | 71.0 | 0.03 / 0.08 | 0.08 / 0.20 | 0.18 / 0.43 | 0.01 / 0.03 | 0.02 / 0.05 |
+| B0950+08 | 253 | 3.0 | 0.7 / 1.7 | 1.2 / 2.9 | 3.6 / 8.8 | 1.2 / 2.9 | 2.6 / 6.3 |
+| B1929+10 | 227 | 3.2 | 0.2 / 0.6 | 0.6 / 1.4 | 1.2 / 2.9 | 1.0 / 2.5 | 2.2 / 5.4 |
+| B1133+16 | 1188 | 4.8 | 0.4 / 0.9 | 0.9 / 2.2 | 1.9 / 4.7 | 2.0 / 5.0 | 4.5 / 10.9 |
+| B0329+54 | 715 | 26.8 | 2.8 / 6.8 | 6.6 / 16.1 | 14.2 / 34.9 | 8.6 / 21.1 | 18.8 / 46.1 |
+| B0833-45 | 89 | 67.9 | 10.0 / 24.5 | 23.6 / 57.7 | 51.0 / 125.1 | 16.6 / 40.5 | 36.3 / 88.8 |
+| B0531+21 | 33 | 56.8 | 0.1 / 0.1 | 0.1 / 0.3 | 0.3 / 0.7 | 1.1 / 2.6 | 2.4 / 5.8 |
+| J0437-4715 | 6 | 2.6 | 1.3 / 3.1 | 3.0 / 7.3 | 6.4 / 15.7 | 1.9 / 4.7 | 4.2 / 10.3 |
+| B1641-45 | 455 | 478.7 | 3.0 / 7.3 | 7.0 / 17.2 | 15.2 / 37.2 | 0.3 / 0.8 | 0.7 / 1.6 |
+| B1706-44 | 102 | 75.6 | 0.1 / 0.2 | 0.1 / 0.4 | 0.3 / 0.8 | 0.1 / 0.1 | 0.1 / 0.3 |
+| B1937+21 | 2 | 71.0 | 0.1 / 0.3 | 0.3 / 0.7 | 0.6 / 1.4 | 0.0 / 0.1 | 0.1 / 0.2 |
 
-**Thời gian cần để đạt SNR = 12** (giờ quan sát liên tục, lý tưởng):
+A/B/C = L-band (1420/1400 MHz, 2.4/10/40 MHz); D/E = 423/408 MHz (2.4/8 MHz).
+Đơn vị: SNR **1 h / 6 h**. Số sinh bằng `python psr_targets.py` — không chép tay.
 
-| Pulsar | A | B | C | D | E |
-|---|---|---|---|---|---|
-| **B0950+08** | 164 h | 30 h | **6.3 h** | 73 h | **15 h** |
-| B1929+10 | 1 100 h | 198 h | 42 h | 408 h | 85 h |
-| B1133+16 | 567 h | 102 h | 22 h | 182 h | 38 h |
-| B0329+54 | 2 230 h | 403 h | 86 h | 485 h | 101 h |
-| B0833−45 | 235 h | 42 h | **9.0 h** | 193 h | 40 h |
-| B0531+21 | — | 7 400 h | 1 580 h | 331 h | 69 h |
-| J0437−4715 | 423 h | 76 h | 16 h | 4 650 h | 970 h |
-| B1641−45 | 1 040 h | 188 h | 40 h | 406 h | 85 h |
-| B1706−44 | 1 640 h | 296 h | 63 h | 881 h | 184 h |
-| B1937+21 | — | — | 4 620 h | — | — |
+### 4.2 Cổng quyết định — SỬA LẠI theo số ATNF (2026-11)
 
-*(“—” = trên 10 000 giờ, coi như không khả thi. Với Cua, con số fold là vô nghĩa —
-đường duy nhất là giant pulse, xem §4.2.)*
-
-*(Thực tế nhân thêm **1.5–2×** cho hiệu chuẩn, trỏ, mất mẫu, thời tiết, RFI và nhấp
-nháy scintillation. Nếu `T_sys` thực là 200 K thay vì 150 K, nhân thêm 1.75×.)*
-
-### 4.2 Cổng quyết định rút ra từ bảng
-
-| Câu hỏi | Trả lời định lượng |
+| Câu hỏi | Trả lời định lượng (sau đính chính) |
 |---|---|
-| Có thể phát hiện pulsar bằng thiết bị **hiện có** không? | **Không** ở L-band (164 h). **Nhưng ở 423 MHz thì được 3.8 trong 2.5 h** — xem §4.3. |
-| Bước **rẻ nhất** trước tiên? | **Đổi ban nhạc sang 423 MHz** (feed + LNA + BPF, không cần SDR mới): ×4 ngay lập tức. |
-| Bước **quyết định**? | SDR **10–20 MHz** ở 423 MHz → **một đêm** đạt SNR 7.7–10.9 cho B0950+08. |
-| Mục tiêu số 1 là gì? | **B0950+08** (dec +7.9°, `alt_max = 87°`, DM 3.0, S ∼ 0.7 Jy @423 MHz, tháng tốt nhất: **2**). **Không** phải B0329+54 (chỉ 0.2 Jy — bài học từ TNU). |
-| Mục tiêu số 2? | **Vela** (`alt_max 34°`, DM 67.9) — mạnh nhưng thấp, `T_sys` xấu. |
-| Có nên làm L-band 40 MHz? | Chỉ khi muốn **một chuỗi duy nhất** cho cả HI và pulsar; đắt hơn và vẫn 6.3 h. |
-| Cua (Crab) thì sao? | Fold vô vọng (duty cycle 30 %). Chỉ giant pulse, giai đoạn 4. |
+| Phát hiện được bằng thiết bị **hiện có** (L-band 2,4 MHz)? | **Được**: Vela **10,0/h** → SNR 8 trong ~40 phút; B0329+54 2,8/h (~8 h). Các mục tiêu khác < 1,5/h. |
+| Bước rẻ nhất? | **Dùng back-end 50 MHz có sẵn của kính** (không mua gì): Vela 51/h, B0329+54 14/h, B1641-45 15/h ở 40 MHz. |
+| Có cần đổi sang 423 MHz? | **Không bắt buộc.** 423 MHz vẫn tốt hơn cho mục tiêu yếu (B1133+16 ×8, B1929+10 ×8 so với L-band) và beam 13° dễ trỏ — nhưng là **tuỳ chọn mở rộng**. |
+| Mục tiêu số 1? | **Vela (B0833-45)** — S1400 = 1,05 Jy, W50 = 1,7 ms → SNR 8 trong vài phút. Hạn chế: altmax 34°. |
+| Mục tiêu số 2–3? | **B0329+54** (1,5 Jy @400, altmax 46°) và **B1641-45** (300 mJy @1400, DM 479 — chỉ tốt ở L-band). |
+| B0950+08? | Vẫn tốt (SNR 9,8/h @423; 3,1/h @L-band) nhưng **không còn là #1**. |
+| Cua? | Fold ở L-band vô vọng (14 mJy); ở 423 MHz 8,8/h — dùng cho giant pulse là chính. |
 
 ---
 
@@ -198,34 +214,34 @@ chưa đủ.
 
 ### Nhưng có ba điều ta làm khác được — và đây là chỗ "1 đêm" trở thành thật
 
-**(1) Mục tiêu: B0329+54 không phải lựa chọn tốt nhất.** Nó chỉ 0.20 Jy @400 MHz.
-Trong tầm nhìn từ TP.HCM, **B0950+08 sáng gấp 3.5 lần (0.70 Jy)** và đi qua **thiên
-đỉnh (alt 87°)** → `T_sys` thấp nhất, DM 3.0 nên **không cần khử tán sắc, không tán xạ**.
+**(1) Mục tiêu: chọn theo số ATNF, không theo cảm tính.** (Đã đính chính — §4.0.)
+B0329+54 thật ra **rất sáng** (1,5 Jy @400 MHz), còn B0950+08 chỉ **0,40 Jy**. So sánh
+đúng: Vela 5,0 Jy, B0329+54 1,5 Jy, B0950+08 0,40 Jy, B1133+16 0,26 Jy.
 
 **(2) Diện tích: 3.7 m so với 2.4 m = ×2.4 diện tích**, lại là mặt parabol thật
-(η 0.55 so với ~0.45 của giấy thiếc) → **gain ×2.8**.
+(η 0.55 so với ~0.45 của giấy thiết) → **gain ×2.8**.
 
 **(3) Băng thông: 6 MHz quá hẹp** khi đã có gain — đây là chỗ đáng đầu tư.
 
-**SNR dự đoán cho kính TA ở 423 MHz, mục tiêu B0950+08** (S = 0.70 Jy, `W50` = 20 ms):
+**SNR dự đoán cho kính TA ở 423 MHz, mục tiêu B0950+08** (ATNF: S = 0,40 Jy, `W50`@423
+= 12,3 ms — **bảng tái sinh 2026-11**, thay bảng cũ dùng 0,70 Jy / 20 ms):
 
 | `T_sys` | B (MHz) | 1 h | 1.5 h | 2 h | **2.5 h** | 3 h |
 |---|---|---|---|---|---|---|
-| 200 K | 2.4 (RTL-SDR hiện có) | 2.4 | 2.9 | 3.4 | **3.8** | 4.1 |
-| 200 K | 6 | 3.8 | 4.6 | 5.3 | **5.9** | 6.5 |
-| 200 K | **10** | 4.9 | 5.9 | 6.9 | **7.7** | 8.4 |
-| 200 K | **20** | 6.9 | 8.4 | 9.7 | **10.9** | 11.9 |
-| 300 K | 10 | 3.2 | 4.0 | 4.6 | **5.1** | 5.6 |
-| 300 K | 20 | 4.6 | 5.6 | 6.5 | **7.2** | 7.9 |
+| 200 K | 2.4 (RTL-SDR hiện có) | 1.8 | 2.2 | 2.5 | **2.8** | 3.0 |
+| 200 K | 6 | 2.8 | 3.4 | 3.9 | **4.4** | 4.8 |
+| 200 K | **10** | 3.6 | 4.4 | 5.1 | **5.7** | 6.2 |
+| 200 K | **20** | 5.1 | 6.2 | 7.2 | **8.0** | 8.8 |
+| 300 K | 10 | 2.4 | 2.9 | 3.4 | **3.8** | 4.1 |
+| 300 K | 20 | 3.4 | 4.1 | 4.8 | **5.4** | 5.9 |
 
 **Đọc bảng này**:
 
-- **Với RTL-SDR hiện có, chỉ cần đổi sang 423 MHz**: 2.5 h cho SNR 3.8 — tức là **×4
-  so với L-band cùng thiết bị** (0.9). Đổi ban nhạc là đòn bẩy **rẻ nhất**.
-- **Thêm SDR 10–20 MHz**: một đêm 2.5 h cho **SNR 7.7–10.9** → **phát hiện trong MỘT
-  ĐÊM**, đúng như trực giác của bạn và của TNU.
-- So với đường L-band 40 MHz (6.3 h cho SNR 12): 423 MHz + 20 MHz đạt SNR 11.9 trong
-  **3 h**, với SDR **rẻ hơn** và **giữ nguyên chuỗi L-band cho HI**.
+- **20 MHz + 2,5 h → SNR 8,0** (không phải 10,9 như bảng cũ): vẫn **phát hiện trong một
+  đêm**, nhưng sát ngưỡng → **nên làm 2 đêm** theo quy tắc xác nhận.
+- Nếu dùng **hệ RTP37 có sẵn (L-band, 50 MHz, tracking)**: Vela đạt SNR 8 trong
+  **~3 phút**, B0329+54 ~25 phút, B1641-45 ~22 phút; B0950+08 cần ~6,5 h
+  (xem §4.4). Đây mới là đường **rẻ nhất** — không mua gì.
 
 ### Bốn điều bắt buộc phải sửa so với hệ TNU
 
@@ -241,6 +257,52 @@ Trong tầm nhìn từ TP.HCM, **B0950+08 sáng gấp 3.5 lần (0.70 Jy)** và 
 > của TNU** cộng với việc tính lại ngân sách S/N cho chảo 3.7 m.
 
 ---
+
+### 4.4 Phương án dùng ĐÚNG hệ POAM RTP37 (L-band, đo từ datasheet)
+
+Datasheet RTP37 (9 trang) cho biết hệ thống **không phải** "chảo cố định + RTL-SDR":
+
+| Hạng mục | Thông số thật | Suy ra |
+|---|---|---|
+| Back-end **N6002** | 100 MHz–6 GHz, phân giải < 1 kHz, gain 70 dB, NF 4–5 dB, **băng tức thời 50 MHz**, 2 kênh, USB 3.0 | Không cần mua SDR; nhưng **chưa biết thời gian tích phân nhỏ nhất** |
+| Front-end L-band | 1350–1450 MHz, **G/T = 13,55 dB/K** @1450, gain 33,44 dBi, HPBW **3,83°** | T_sys = G/(G/T) ≈ **97,5 K** → **SEFD ≈ 35,8 kJy** |
+| Mount | Az-over-El, **tracking < 0,01°**, encoder 0,01° | **Track được 4–5 h**, không còn giới hạn T_eff ~1 h của chế độ transit |
+| Phần mềm RTCS v2 | điều khiển + thu, 80 nguồn (có pulsar), hiển thị phổ, hiệu chuẩn, xuất SFU | Tối ưu cho **Mặt Trời/HI**, chưa rõ chế độ pulsar |
+
+**SNR với số ATNF đã đính chính** (track 4 h, n_pol = 1, L-band: 50 MHz, SEFD 35,8 kJy;
+423 MHz: 40 MHz, SEFD 70 kJy, W tính theo mô hình §4.0):
+
+| Pulsar | S1400 | SNR 4 h @L-band | → thời gian đạt SNR 8 | S400 | SNR 4 h @423 | → thời gian SNR 8 |
+|---|---|---|---|---|---|---|
+| **B0833-45 (Vela)** | 1050 mJy | **178** | **~3 phút** | 5,0 Jy | **271** | ~2 phút |
+| **B0329+54** | 203 | **50** | **~25 phút** | 1,5 Jy | **140** | ~3 phút |
+| **B1641-45** | 300 | **53** | **~22 phút** | 0,38 Jy | 5 ⚠ | (bị tán xạ 180 ms) |
+| B0950+08 | 100 | 12,6 | ~6,5 h | 0,4 Jy | 19 | ~40 phút |
+| B1133+16 | 20 | 6,7 | ~23 h | 0,26 Jy | 33 | ~15 phút |
+| B1929+10 | 29 | 4,1 | >1 đêm | 0,30 Jy | 17 | ~30 phút |
+| B0531+21 (Cua) | 14 | 1,1 | không | 0,65 Jy | 18 | ~35 phút |
+
+**Kết luận thực dụng:** với hệ có sẵn, **Vela / B0329+54 / B1641-45 là 3 mục tiêu demo
+trong 30 phút**; B0950+08 không còn là "#1". Ở 423 MHz (nếu mua thêm front-end
+400–450), gần như mọi mục tiêu đạt SNR 8 trong dưới 1 giờ.
+
+### 4.5 Ma trận DỰ PHÒNG THIẾT BỊ (để không bị chặn khi hàng không đúng kỳ vọng)
+
+| # | Tình huống | Ảnh hưởng | Phương án dự phòng | Chi phí |
+|---|---|---|---|---|
+| 1 | **N6002 chỉ dump phổ ≥ 0,1–1 s** (không làm được pulsar) | Chặn bài lab pulsar | Hỏi **cổng RF/IF monitor out** sau LNA → cắm SDR ngoài (Airspy Mini/USRP) chạy pipeline sẵn có | Thấp (SDR ~5–15 triệu) |
+| 2 | N6002 **không có cổng IF** | Như trên, nhưng phải chế | Dùng **coupler −20 dB** ngay sau front-end; hoặc mua front-end riêng (LNA+BPF) song song | Trung bình |
+| 3 | N6002 **không có timestamp** | Pha không tái lập, không cộng dồn đêm | Dùng **PPS/GPS** hoặc đánh dấu bằng xung hiệu chuẩn; ghi `t0_mjd` + NTP | Thấp |
+| 4 | Không mua được **front-end 400–450 MHz** | Mất phương án 423 MHz | Dùng L-band có sẵn (Vela/B0329/B1641 vẫn đạt SNR 8 trong <30 phút) | 0 |
+| 5 | **Không có calibration noise source** | Không đo được T_sys/SEFD, flux chỉ tương đối | Y-factor với **Mặt Trời/Mặt Trăng/Cas A** (kém chính xác hơn, ~20–30 %) | 0 |
+| 6 | Tracking **hỏng giữa đêm** | Mất dữ liệu | Chuyển sang **transit** (T_eff 0,27 h @L-band — ngắn, nhưng vẫn dùng được cho Vela/B0329) | 0 |
+| 7 | **Mưa/sét TP.HCM** | Không quan sát | Lên lịch mùa khô; surge arrester; ưu tiên mục tiêu transit ban ngày | Thấp |
+| 8 | Cáp 50 m **suy hao cao** ở 1,45 GHz | T_sys tăng → SEFD tăng | Option **RF-to-fibre** | Trung bình |
+
+**Câu hỏi bắt buộc trong RFQ** (nếu không trả lời được thì coi như rủi ro #1):
+1. N6002: **thời gian tích phân nhỏ nhất**, tốc độ ra dữ liệu, có chế độ raw spectrum ≤ 1 ms?
+2. Có **cổng RF/IF monitor out** (hoặc điểm tap sau LNA) để cắm SDR ngoài không?
+3. **Timestamp** (PPS/GPS/NTP) và định dạng dữ liệu mở/API?
 
 ## 5. Đồng hồ, thời gian và mất mẫu
 
@@ -291,6 +353,18 @@ chương trình, chọn "cửa sổ" giờ + dải tần sạch. Đây là deliv
 
 `Cas A` là nguồn chuẩn tốt nhất cho chảo nhỏ: mạnh, biết chính xác, giảm 0.7 %/năm.
 
+**Ngưỡng tự động (gatekeeper, xem `docs/07` §6c.3)** — phần mềm phải tự áp, không để
+người dùng nhớ:
+
+| Thông số | Ngưỡng | Hành động |
+|---|---|---|
+| Bão hoà ADC | >0,01 % mẫu chạm ngưỡng | WARN → dùng median/MAD |
+| | >0,5 % | ABORT khối, tag `SATURATED`, yêu cầu giảm gain/kiểm tra BPF |
+| Radiometer `σ_P/μ_P` | lệch >20 % so với `1/√(Δf·τ)` | tag `GAIN_DRIFT` (so với kênh đối chứng) |
+| Spectral Kurtosis | ngoài `1 ± 3σ_SK`, `σ_SK≈√(4/M)`, M ≥ 1000 | cờ RFI, loại kênh |
+| `T_sys` | >1,5 × chuẩn | kiểm tra góc Mặt Trời + elevation <15° → `DEGRADED` |
+| `ΔT_LNA` | >2 °C trong phiên | rút cửa sổ bandpass 600 s → 180 s |
+
 ---
 
 ## 8. Những gì **không** làm được với thiết bị hiện tại (và lý do)
@@ -312,10 +386,10 @@ chương trình, chọn "cửa sổ" giờ + dải tần sạch. Đây là deliv
 A_eff = 5.91 m²      G = 2.14 mK/Jy      beam = 4.0° @1.42 GHz | 13.4° @423 MHz
 SEFD  = 70 kJy @Tsys 150 K (L-band)  |  93 kJy @Tsys 200 K (423 MHz)
 1σ (2.4 MHz, 1 h) = 0.75 Jy @L-band   |   SNB_fold = (S/SEFD)·√(B·t)·√(P/W)
-Thiết bị hiện có @L-band: 164 h  → KHÔNG ĐỦ
-Cùng thiết bị, đổi sang 423 MHz: 2.5 h → SNR 3.8  (×4, chi phí chỉ là feed+LNA+BPF)
-423 MHz + SDR 20 MHz, Tsys 200 K: 2.5 h → SNR 10.9 → PHÁT HIỆN TRONG MỘT ĐÊM
-Mục tiêu #1: B0950+08 (alt 87°, DM 3.0, 0.70 Jy @423 MHz, tháng 2)
+Hệ RTP37 có sẵn @L-band 50 MHz + tracking: Vela 3 phút | B0329+54 25 phút | B1641-45 22 phút  (SNR 8)
+423 MHz (nếu mở rộng) 40 MHz: B0950+08 40 phút | B1133+16 15 phút | B1929+10 30 phút
+Flux ATNF: Vela 5,0 Jy | B0329+54 1,5 Jy | B0950+08 0,40 Jy  (@400 MHz)
+Mục tiêu #1: Vela (S1400 = 1,05 Jy) — KHÔNG còn là B0950+08
 QUY TẮC: SNR ≥ 6–8 VÀ thấy lại đêm thứ hai, đúng pha
 ```
 

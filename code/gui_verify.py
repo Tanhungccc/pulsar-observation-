@@ -149,11 +149,52 @@ def main(fast=False):
     chk("nút 'Mở thư mục kết quả' mở đúng thư mục",
         bool(opened) and os.path.isdir(opened[-1]), opened[-1] if opened else "")
 
+    # =============================================== D0. NGUỒN DỮ LIỆU
+    print("\n=== D0. NGUỒN DỮ LIỆU: tự dò SDR + ép chế độ ===")
+    opts = list(app.rec_source.cget("values"))
+    chk("dropdown nguồn có đúng 3 chế độ", len(opts) == 3, str(opts))
+    chk("mặc định là Tự động", app._source_key() == "auto",
+        f"đang chọn: {app._source_key()}")
+    app.rec_source.set(gui_app.SOURCE_MODES["mock"]); root.update()
+    probe = app.refresh_hw_status()
+    lbl = app.rec_hw_label.cget("text")
+    chk("ép MÔ PHỎNG → nhãn cảnh báo mô phỏng", "MÔ PHỎNG" in lbl, lbl)
+    app.rec_source.set(gui_app.SOURCE_MODES["auto"]); root.update()
+    lbl_auto = app.refresh_hw_status() and app.rec_hw_label.cget("text")
+    chk("chế độ Tự động → nhãn phản ánh đúng có/không có SDR",
+        ("đã kết nối" in lbl_auto) if probe["found"] else ("MÔ PHỎNG" in lbl_auto),
+        lbl_auto)
+    if not probe["found"]:
+        app.rec_source.set(gui_app.SOURCE_MODES["real"]); root.update()
+        app.refresh_hw_status()
+        chk("'Bắt buộc SDR thật' khi không có SDR → nhãn cảnh báo đỏ",
+            "KHÔNG có SDR" in app.rec_hw_label.cget("text"),
+            app.rec_hw_label.cget("text"))
+    app.rec_source.set(gui_app.SOURCE_MODES["mock"]); root.update()
+
+    # mục tiêu tự thêm: thêm → hiện trong danh sách → xoá
+    import psr_targets as _pt
+    _n0 = len(app.rec_target.cget("values"))
+    _pt.upsert_target(dict(name="ZZTEST_TARGET", ra=123.45, dec=-12.34,
+                           P=0.5, dm=20.0))
+    app.refresh_target_list(select="ZZTEST_TARGET")
+    root.update()
+    chk("mục tiêu tự thêm xuất hiện trong danh sách",
+        "ZZTEST_TARGET" in list(app.rec_target.cget("values")),
+        f"{_n0} → {len(app.rec_target.cget('values'))} mục")
+    chk("mục tiêu tự thêm tra được (find_target)",
+        bool(_pt.find_target("zztest_target")))
+    _pt.delete_target("ZZTEST_TARGET")
+    app.refresh_target_list(keep_current=False)
+    root.update()
+    chk("xoá mục tiêu tự thêm khỏi danh sách",
+        "ZZTEST_TARGET" not in list(app.rec_target.cget("values")))
+
     # =============================================== D. TAB 1 — GHI TỰ ĐỘNG
     print("\n=== D. TAB 1: GHI TỰ ĐỘNG (mock) ===")
     secs = 8.0 if fast else 18.0
     app.rec_hours.set(secs / 3600.0)      # 8–18 giây dữ liệu
-    app.rec_mock.set(True)
+    app.rec_source.set(gui_app.SOURCE_MODES["mock"])
     app.rec_nchan.set(64)
     app.rec_tsamp.set(256)
     before = set(os.listdir(os.path.join(gui_app.DATA_DIR,

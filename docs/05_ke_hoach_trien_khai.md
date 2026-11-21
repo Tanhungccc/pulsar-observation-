@@ -61,51 +61,60 @@ Mọi con số S/N lấy từ `02`; phương pháp lấy từ `01`; code ở `co
 
 ---
 
-## 4. Giai đoạn 2 — Nâng cấp phần cứng (tuần 5–8, mua sắm song song GĐ1)
+## 4. Giai đoạn 2 — Nâng cấp phần cứng: 3 TẦNG (sửa 2026-11)
 
-### Phương án A (KHUYẾN NGHỊ sau khi đối chiếu TNU): **423 MHz**
+> **Bối cảnh mới:** trường đã có hệ **POAM RTP37** với back-end N6002 (50 MHz tức thời),
+> front-end L-band, mount tracking 0,01° (datasheet, xem `docs/02` §4.4). Vì vậy kế
+> hoạch cũ ("mua RTL-SDR + BPF rồi chuyển sang 423 MHz") **không còn là mặc định**.
+> Nguyên tắc: **không giả định trường sẽ mua thêm option nào ngoài gói chuẩn.**
 
-Đây là thay đổi lớn nhất so với bản kế hoạch đầu, dựa trên thực nghiệm TNU + tính lại
-ngân sách S/N (`docs/02` §4.3). Lý do: pulsar sáng gấp **6–7 lần** ở 423 MHz so với
-1.4 GHz, nên **không cần** băng thông 40 MHz đắt tiền.
+### TẦNG 1 — Gói chuẩn, KHÔNG option (phải chạy được ngay)
 
-| Hạng mục | Yêu cầu | Vì sao |
+Điều kiện: chỉ có những gì nằm trong "RTP37 INCLUDES".
+
+| Việc | Cách làm | Kết quả |
 |---|---|---|
-| Feed 423 MHz | dipole nửa sóng + mặt phản xạ, hoặc loop + ground plane (λ = 71 cm) | thay feed L-band |
-| LNA | NF ≤ 0.6 dB, 300–500 MHz (vd. ZKL-33ULN-S+ như TNU) | `T_sys` quyết định mọi thứ |
-| **BPF 380–450 MHz** | **bắt buộc** (TNU dùng LPF → sai lầm ở TP.HCM) | chặn FM 88–108, hàng không, TETRA |
-| SDR | **10–20 MHz** (RSPdx / Pluto+); RTL-SDR 2.4 MHz chỉ là tạm | `SNR ∝ √B` |
-| Cáp + chống sét | LMR-400, tiếp địa | như A2 |
+| Mục tiêu | **Vela (B0833-45), B0329+54, B1641-45** | SNR 8 trong **3 / 25 / 22 phút** (track, 50 MHz) |
+| Hiệu chuẩn T_sys | **Y-factor bằng Mặt Trời / Mặt Trăng / Cas A** (không có noise source) | SEFD ước lượng sai số ~20–30 % — chấp nhận được cho bài lab |
+| Nếu N6002 **không** xuất phổ ≤ 1 ms | **RF splitter/coupler −20 dB ngay tại đầu cáp coax trong tủ rack** → nối ra **SDR ≥ 10 MHz** (Airspy Mini / RSP1A) chạy pipeline có sẵn | Bài lab pulsar vẫn chạy; chi phí thấp |
+| Phần mềm | RTCS (điều khiển/ghi) + bộ phân tích của ta đọc file/stream | |
 
-Kết quả kỳ vọng: **B0950+08, 2.5 h, một đêm** → SNR **7.7** (10 MHz) hoặc **10.9**
-(20 MHz) với `T_sys = 200 K`. Chuỗi L-band (SAWbird + HI) **giữ nguyên** cho HI.
+Không cần mua gì thêm. Đây là **đường bắt buộc phải thông** trước khi nghĩ tới tầng 2.
 
-### Phương án B: L-band băng rộng 40 MHz (nếu muốn một chuỗi duy nhất)
+### TẦNG 2 — Đề xuất trong RFQ (nếu ngân sách cho phép)
 
-| Hạng mục | Yêu cầu | Vì sao |
+| Hạng mục | Vì sao | Nếu không có thì sao |
 |---|---|---|
-| SDR 40–56 MHz | Pluto+ / LimeSDR Mini | `SNR ∝ √B`: 2.4→40 MHz = ×4.1 |
-| Bỏ SAWbird+HI, thay LNA | NF ≤ 0.7 dB, 1.2–1.6 GHz | SAW giới hạn ~25 MHz |
-| BPF 1300–1500 MHz | sau LNA | chặn GSM/DVB |
+| **Calibration noise source** (chính hãng) | Đo T_sys/SEFD chính xác, hiệu chuẩn flux, bài lab hiệu chuẩn | Dùng Mặt Trời/Mặt Trăng/Cas A (kém 20–30 %) |
+| **Cổng RF/IF monitor out** chính hãng | Đường chính thức để cắm SDR ngoài → bài lab pulsar không phụ thuộc tốc độ dump của N6002 | Chế coupler −20 dB (tầng 1) — rủi ro thấp nhưng không chính hãng |
+| Timestamp PPS/GPS | Pha tuyệt đối, cộng dồn nhiều đêm | NTP + `t0_mjd`; chấp nhận trôi ppm |
 
-Kết quả: `T_sys ≈ 100–130 K`, `B = 40 MHz` → B0950+08 **6.3 h** cho SNR 12.
-Ưu: không có RFI 400 MHz; nhược: đắt hơn, vẫn cần 6 h.
+### TẦNG 3 — Mở rộng giai đoạn sau (KHÔNG còn là "khuyến nghị")
 
-### Phương án C (không mua gì): đổi sang 423 MHz + cộng dồn nhiều đêm
+**423 MHz** hạ từ "Phương án A khuyến nghị" xuống **tuỳ chọn mở rộng**, vì L-band có sẵn
+đã đủ cho 3 mục tiêu demo. Chỉ làm khi: (a) muốn quan sát mục tiêu **yếu** (B1133+16,
+B1929+10 sáng gấp ~8 lần so với L-band), (b) muốn beam 13° để trỏ dễ, (c) muốn tránh
+vạch HI trong băng.
 
-Chỉ cần **feed + LNA + BPF 423 MHz** (~5–8 tr), giữ RTL-SDR 2.4 MHz:
-- **1 đêm 2.5 h → SNR 3.8** (đã là ×4 so với L-band cùng thiết bị)
-- 2 đêm → 5.4 · **4 đêm → 7.6** (ngưỡng phát hiện)
+| Hạng mục | Yêu cầu |
+|---|---|
+| Feed 423 MHz (λ = 71 cm) | dipole/loop + ground plane |
+| LNA | NF ≤ 0.6 dB, 300–500 MHz |
+| BPF 380–450 MHz | bắt buộc (chặn FM 88–108 MHz tại TP.HCM) |
+| Nối vào back-end | N6002 phủ 100 MHz–6 GHz → **không cần SDR mới** nếu có cổng RF in |
 
-Đây là phương án **phù hợp nhất với thời gian ở trường**: mỗi phiên 2.5 h, tổng 4 phiên
-trong 4 tuần, không cần mua SDR mới.
+### Ghi chú lịch sử (giữ để đối chiếu, không dùng để quyết định)
+
+Các phương án A/B/C cũ dựa trên **flux sai** (B0329+54 200 mJy thay vì 1500; Vela 700
+thay vì 5000) nên mọi con số "SNR 10.9 sau 2.5 h" trong bản cũ **không còn hiệu lực**.
+Số đúng: `docs/02` §4.0–§4.2.
 
 ### Nhận xét về TNU (ghi để không lặp lại)
 
-Hệ 2.4 m / 6 MHz / 2.5 h của TNU có SNR **lý thuyết ≈ 1** cho B0329+54 → ứng viên họ
-báo cáo nằm trong mức nhiễu (chính họ kết luận "hard to confirm"). Ba điều ta làm khác:
-**mục tiêu sáng hơn 3.5×** (B0950+08), **diện tích ×2.4 + hiệu suất cao hơn**,
-**BPF thay LPF** và **quy tắc 2 đêm**.
+Hệ 2.4 m / 6 MHz / 2.5 h của TNU có SNR lý thuyết rất thấp cho mục tiêu của họ → ứng
+viên họ báo cáo nằm trong mức nhiễu (chính họ kết luận "hard to confirm"). Ba điều ta
+làm khác: **mục tiêu sáng hơn nhiều lần** (Vela/B0329+54), **diện tích ×2.4 + hiệu suất
+cao hơn + back-end 50 MHz**, **BPF thay LPF** và **quy tắc 2 đêm**.
 
 ---
 
@@ -113,32 +122,22 @@ báo cáo nằm trong mức nhiễu (chính họ kết luận "hard to confirm")
 
 Mục tiêu theo thứ tự **chắc chắn → tham vọng**:
 
-| Thứ tự | Mục tiêu | `alt_max` | Tháng tốt | Thời gian | SNR kỳ vọng (B=40 MHz) |
+| Thứ tự | Mục tiêu | `alt_max` | Cách làm | Thời gian | SNR kỳ vọng |
 |---|---|---|---|---|---|
-| 1 | **B0950+08 @423 MHz, 20 MHz, `T_sys` 200 K** | 87.1° | 2 | **2.5 h × 1 đêm** | **10.9** |
-| 1b | B0950+08, đêm thứ hai (xác nhận, đúng pha) | — | 2 | 2.5 h | 10.9 (cộng → 15.4) |
-| 1c | B0950+08 với **RTL-SDR 2.4 MHz** (không mua SDR) | 87.1° | 2 | 2.5 h × **4 đêm** | 3.8 → **7.6** |
-| 2 | B1929+10 @423 MHz | 89.8° | 7 | 2.5 h × 2 đêm | 3.5 → 5.0 |
-| 3 | **Vela** (B0833−45) | 34.0° | 1 | 2.5 h × 3 đêm | 4.0 |
-| 4 | B1133+16 | 85.0° | 3 | 2.5 h × 4 đêm | 3.7 |
-| 5 | B0329+54 (**bài học TNU**: chỉ 0.2 Jy — để sau) | 46.2° | 11 | 2.5 h × 8 đêm | 1.6 → 4.5 |
-| 6 | Cua (giant pulse) | 78.8° | 12 | nhiều đêm | (xác suất thấp) |
+| 1 | **Vela (B0833-45)** | 34° | L-band 50 MHz + tracking | **3 phút** | **~9** |
+| 2 | **B0329+54** | 46° | L-band 50 MHz + tracking | **25 phút** | **~8** |
+| 3 | **B1641-45** (DM 479) | 33° | L-band 50 MHz + tracking (ở 423 MHz bị tán xạ) | **22 phút** | **~8** |
+| 4 | B0950+08 | 87° | L-band 50 MHz + tracking | **~6,5 h** (hoặc 40 phút nếu có front-end 423 MHz) | ~8 |
+| 5 | B1133+16 / B1929+10 | 85° / 90° | cần 423 MHz (L-band quá yếu) | 2–3 đêm | ~8 |
+| 6 | Cua (giant pulse) | 79° | 423 MHz | nhiều đêm | xác suất thấp |
 
-Quy trình mỗi đêm (6 h):
+Số lấy từ `docs/02` §4.4 (SEFD 35,8 kJy L-band / 70 kJy @423; flux ATNF).
 
-```
-1. Trỏ Cas A 5 phút  → hiệu chuẩn gain/T_sys của đêm
-2. Trỏ mục tiêu      → ghi 5.5 h (timestamp + đếm mẫu)
-3. Trỏ Cas A 5 phút  → kiểm tra gain không trôi
-4. Xử lý tự động: RFI → DM (A11b) → fold → SNR → lưu metadata
-5. Ghi vào sổ: SNR, T_sys, thời tiết, RFI
-```
+### Ngắm cố định (không tracking) thì mất bao nhiêu?
 
-**Quy tắc khoa học**: một phát hiện chỉ được công nhận khi
-(a) SNR ≥ 8, (b) thấy lại ở **đêm khác**, (c) xuất hiện **đúng pha** dự đoán từ `P`
-catalogue, (d) không xuất hiện khi trỏ lệch 8° (kiểm tra nền).
-
----
+T_eff @L-band chỉ 0,27 h (HPBW 3,83°), nên **ngắm cố định ở L-band gần như vô dụng**
+cho pulsar; @423 MHz T_eff ≈ 0,96 h. Vì kính **có tracking 0,01°**, hãy dùng tracking —
+đó là lý do chính khiến bài lab pulsar trở nên khả thi trong 30 phút.
 
 ## 6. Giai đoạn 4 — Mở rộng (tháng 5–12)
 
@@ -152,6 +151,22 @@ catalogue, (d) không xuất hiện khi trỏ lệch 8° (kiểm tra nền).
 | Đo `T_sys`/SEFD thành chuẩn công bố | đã có từ GĐ0 | Nền cho mọi kết quả khác |
 
 ---
+
+## 6b. Ưu tiên mua sắm — theo 3 tầng (sửa 2026-11)
+
+| Tầng | Hạng mục | Bắt buộc? | Ghi chú |
+|---|---|---|---|
+| **1** | Gói chuẩn RTP37 (đã có) | — | L-band 1350–1450, N6002 50 MHz, tracking 0,01°, RTCS |
+| **1** | **Coupler/splitter −20 dB + SDR ≥ 10 MHz** | **chỉ khi** N6002 không dump ≤ 1 ms | Đường dự phòng để làm pulsar; ~5–15 triệu |
+| **1** | Cảm biến nhiệt LNA/rack (DS18B20, I2C/serial) | nên có | Bù trôi gain, ghi telemetry (`docs/07` §6c) |
+| **2** | **Calibration noise source** | RFQ | Không có → Y-factor Mặt Trời/Mặt Trăng/Cas A |
+| **2** | **Cổng RF/IF monitor out** chính hãng | RFQ | Đường chính thức cho SDR ngoài |
+| **2** | PPS/GPS timing | RFQ | Cộng dồn nhiều đêm |
+| **3** | Front-end 423 MHz (feed + LNA + BPF) | tuỳ chọn mở rộng | Chỉ khi cần mục tiêu yếu / beam rộng |
+| **3** | RF-to-fibre | tuỳ chọn | Nếu cáp 50 m suy hao lớn ở 1,45 GHz |
+
+**Không đưa vào danh sách bắt buộc:** RTL-SDR/BPF tự chế (đã có back-end 50 MHz),
+SDR 40 MHz (N6002 đã có 50 MHz), front-end C/X/Ku/Ka (không phục vụ pulsar).
 
 ## 7. Thiết bị & chi phí (giá tham khảo, **phải báo giá thực tế**)
 
@@ -259,17 +274,20 @@ vì `SNR² ∝ ∫(độ lợi chùm) dt`, nên `T_eff` mới là con số đem 
 Đây là lý do **quyết định** phải dùng 423 MHz nếu muốn ngắm cố định: beam 4° ở L-band
 chỉ cho 17 phút hữu ích mỗi đêm, còn beam 13.4° cho gần 1 giờ.
 
-**Kết quả cho B0950+08, 423 MHz, `B` = 20 MHz, `T_sys` = 200 K, ngắm cố định:**
+**Kết quả cho B0950+08, 423 MHz, `B` = 20 MHz, `T_sys` = 200 K** (flux ATNF 0,40 Jy,
+W@423 = 12,3 ms — tái sinh 2026-11):
 
-| Số đêm transit | SNR |
+| Cách quan sát | SNR |
 |---|---|
-| 1 đêm | **5.9** |
-| **2 đêm** | **8.3** ✅ ngưỡng phát hiện |
-| 4 đêm | **11.8** |
+| 1 đêm ngắm cố định (T_eff 0,96 h) | **5,0** |
+| 2 đêm ngắm cố định | **7,0** (chưa đạt 8) |
+| 4 đêm ngắm cố định | **10,0** ✅ |
+| **track 2,5 h** (1 đêm) | **8,0** → track tốt hơn **1,6×** so với 1 transit |
+| track 4,5 h (1 đêm) | **10,8** |
 
-So sánh: **track 2.5 h liên tục** cho SNR 10.9 → tracking tốt hơn 1.85× so với 1 transit.
-Nhưng **2 đêm ngắm cố định (8.3) > 1 đêm track (10.9) về độ tin cậy**, vì có xác nhận
-độc lập — và không cần ai thức canh.
+→ Có tracking thì **một đêm là đủ**; không có tracking thì cần **4 đêm** mới chắc.
+Và nếu dùng hệ RTP37 **L-band có sẵn**, Vela đạt SNR 8 chỉ trong **3 phút** — nên
+"đêm đầu tiên" hãy dành cho Vela, đừng dành cho B0950+08.
 
 **Quy tắc thực hành khi để chảo một hướng:**
 
@@ -282,7 +300,7 @@ Nhưng **2 đêm ngắm cố định (8.3) > 1 đêm track (10.9) về độ tin
    423 MHz là mất ~3 % độ lợi, chấp nhận được, nhưng sai 5° thì mất 30 %.
 6. Ban đêm nhiệt độ giảm → gain trôi: hiệu chuẩn lại bằng Cas A đầu và cuối buổi.
 
-> Với chảo 3.7 m có motor + encoder, **nên track** nếu chạy được (10.9 so với 5.9). Chế
+> Với chảo 3.7 m có motor + encoder, **nên track** (8,0 so với 5,0 ở 423 MHz). Chế
 > độ ngắm cố định là **phương án dự phòng tốt** khi motor trục trặc, khi chỉ có 1 buổi
 > ngắn, hoặc khi muốn "đặt rồi về".
 
@@ -332,35 +350,48 @@ cho cộng đồng, và là bằng chứng trung thực về giới hạn của 
 
 ## 11. Việc làm ngay tuần này (checklist)
 
-- [ ] 1. `cd "pulsar observation/code" && python selftest.py` → phải 16/16 PASS.
+- [ ] 1. `cd "pulsar observation/code" && python selftest.py` → phải 23/23 PASS.
 - [ ] 2. `python psr_pipeline.py` → xem `results/fig01_pipeline.png`; hiểu 4 panel.
 - [ ] 3. `python psr_targets.py` và `--derived` → in ra, dán vào sổ tay quan sát.
-- [ ] 4. Sửa `PROJECT_PLAN.md` §1/§3 theo `docs/02` §3 (SEFD + SNR).
+- [ ] 4. **M1**: làm `psr_site.py` + `psr_constants.py` (xem `docs/07` §2, §5) — sau đó
+      mới tới M2 (dò DM 2 tầng) và **M2.5 injection–recovery** trước M3.
 - [ ] 5. Đo `T_sys` bằng Y-factor trên Cas A (1 buổi) — ghi vào metadata.
 - [ ] 6. Khảo sát RFI 24 h → chọn cửa sổ giờ quan sát.
-- [ ] 7. Viết `record_dynamic_spectrum()` + kiểm tra mất mẫu (2 h liên tục).
-- [ ] 8. Làm injection test trên dữ liệu thật (task 1.4).
+- [ ] 7. Bổ sung trình ghi theo `docs/06` §6b (log gap theo **chỉ số mẫu**, khối
+      bandpass 600 s, `t0_mjd` + NTP offset, `sha256`).
+- [ ] 8. Làm injection test trên dữ liệu thật (task 1.4) — chính thức hoá thành M2.5.
 - [ ] 9. Xin báo giá SDR 10–56 MHz + BPF + LNA (3 nhà cung cấp).
 - [ ] 10. Đặt lịch đêm quan sát B0950+08 vào **tháng 2**.
 
 ---
 
-## 12. Kiến trúc code đề xuất (nối vào repo hiện có)
+## 12. Kiến trúc code — xem `docs/07`
 
-```
-SKAO-TRT-rebuild/
-├── skao_trt/
-│   ├── sdr_wrapper.py        ← thêm read_samples_stream() + đếm mẫu
-│   ├── record_data.py        ← thêm record_dynamic_spectrum()
-│   ├── psr/                  ← MỚI: copy từ "pulsar observation/code/"
-│   │   ├── core.py           (psr_core.py)
-│   │   ├── sim.py            (psr_sim.py — dùng cho injection test)
-│   │   ├── sensitivity.py
-│   │   └── targets.py
-│   └── apps/pulsar_app.py    ← MỚI: tab GUI (chọn mục tiêu → trỏ → ghi → fold)
-└── tests/
-    └── test_psr_core.py      ← chuyển từ selftest.py sang pytest
-```
+> **Đã thay đổi:** mục này trước đây mô tả việc chuyển code sang repo `SKAO-TRT-rebuild`.
+> Hướng đó **không còn dùng**. Kiến trúc chính thức hiện nằm ở
+> **`docs/07_kien_truc_he_thong_xu_ly.md`** (đã chốt thiết kế, chưa triển khai).
 
-Nguyên tắc: `psr_core.py` **không import** gì từ `skao_trt` (thuần numpy) để có thể
-kiểm thử độc lập — đó là lý do nó nằm riêng trong thư mục này.
+Tóm tắt 6 tầng: L0 hồ sơ trạm/kính (`psr_site`, `psr_constants`) → L1 đọc/ghi
+(`psr_fil`, `psr_fits`, `psr_iq`) → L2 DSP thuần (`psr_core`) → L3 dò tìm
+(`psr_dm`, `psr_pulse`, `psr_period`, `psr_veto`) → L4 sản phẩm (`psr_products`) →
+L5 điều phối (`pulsarobs` CLI) → L6 GUI (chỉ gọi CLI, không chứa DSP).
+
+Nguyên tắc giữ nguyên: `psr_core.py` **không import** gì từ tầng khác (thuần numpy)
+để kiểm thử độc lập.
+
+### 12b. Lộ trình phát triển phần mềm (thay cho lộ trình G0–G4 ở trên, chạy song song)
+
+Lộ trình G0–G4 ở các mục 2–6 là **lộ trình phần cứng/quan sát**. Song song, phần
+mềm đi theo các mốc sau (chi tiết + tiêu chí cổng: `docs/07` §11):
+
+| Mốc | Nội dung | Cổng kiểm chứng |
+|---|---|---|
+| **M0** | Baseline hiện tại (đã có) | selftest 23/23, gui 48/48, nghiệm thu 67/67 |
+| **M1** | Hồ sơ trạm/kính + module hằng số; refactor không đổi hành vi | M0 vẫn xanh; profile mặc định cho lại 13.4° / 2.14 mK·Jy⁻¹ / SEFD 70 kJy |
+| **M2** | Dò DM 2 tầng + đọc theo khối | File 4 GB với RSS < 2 GB, < 20 phút |
+| **M2.5** | **Injection–recovery** (cổng bắt buộc) | `capability_matrix.md`; completeness ≥ 80 % (SNR ≥ 10, DM ≤ 500), FPR ≤ 0.5/giờ |
+| **M3** | Dò chu kỳ mù + danh sách ứng viên | Tìm lại P của B0950+08 & B0329+54 **không** truyền P |
+| **M4** | Chế độ `fixed`/`track` + pointing log + trọng số | T_eff đúng; test nam bán cầu |
+| **M5** | CLI `pulsarobs` + `report.json` schema v3 + provenance | JSON hợp lệ, nghiệm thu mở rộng |
+
+Thứ tự không đảo: **M2.5 là thước đo của M3**.
