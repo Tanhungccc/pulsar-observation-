@@ -1111,12 +1111,15 @@ class App:
 
 
 # ---------------------------------------------------------------- selfcheck EXE
+VERSION = "1.2.0"
+
+
 def selfcheck() -> int:
     """Nghiệm thu bản ĐÓNG GÓI: import, đường dẫn, công thức, IQ, PSRFITS, xuất file."""
     import io
     import shutil
     import tempfile
-    lines = [f"selfcheck {datetime.now():%Y-%m-%d %H:%M:%S}",
+    lines = [f"selfcheck {datetime.now():%Y-%m-%d %H:%M:%S} — v{VERSION}",
              f"frozen = {FROZEN}", f"APP_DIR = {APP_DIR}", f"DATA_DIR = {DATA_DIR}",
              f"RESULTS_DIR = {RESULTS_DIR}"]
     ok = True
@@ -1142,6 +1145,31 @@ def selfcheck() -> int:
 
     ico = asset_path("icon.ico")
     chk("icon app tồn tại (assets/icon.ico)", bool(ico), ico or "THIẾU")
+
+    # ---- ĐĨA: danh mục mục tiêu + thư mục ghi (điểm hay hỏng khi đóng gói EXE)
+    try:
+        import os as _os
+        _p = psr_targets.user_targets_path()
+        _n0 = len(psr_targets.all_pulsars())
+        psr_targets.upsert_target(dict(name="ZZ_SELFCHECK", ra=10.0, dec=-10.0,
+                                       P=0.5, dm=10.0))
+        _ok_write = _os.path.exists(_p) and bool(psr_targets.find_target("ZZ_SELFCHECK"))
+        _ok_read = len(psr_targets.all_pulsars()) == _n0 + 1
+        psr_targets.delete_target("ZZ_SELFCHECK")
+        _ok_del = len(psr_targets.all_pulsars()) == _n0
+        chk("danh mục mục tiêu ghi/đọc/xoá được cạnh app", _ok_write and _ok_read and _ok_del,
+            _p)
+    except Exception as e:
+        chk("danh mục mục tiêu ghi/đọc/xoá được cạnh app", False, repr(e))
+
+    try:
+        import os as _os
+        for _d in (DATA_DIR, RESULTS_DIR):
+            _os.makedirs(_d, exist_ok=True)
+        _w = all(_os.access(_d, _os.W_OK) for _d in (DATA_DIR, RESULTS_DIR))
+        chk("thư mục data/ và results/ tồn tại và ghi được", _w, APP_DIR)
+    except Exception as e:
+        chk("thư mục data/ và results/ tồn tại và ghi được", False, repr(e))
     try:
         import tkinter as _tk
         _r = _tk.Tk()
