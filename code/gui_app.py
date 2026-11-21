@@ -666,9 +666,13 @@ class App:
         self.det_dm.grid(row=1, column=1, padx=4, sticky="w")
 
         ttk.Label(f, text=L.t("IQ → kênh:")).grid(row=1, column=2, sticky="w", padx=4)
-        self.det_p = ttk.Entry(f, width=10)
-        self.det_p.insert(0, "0.714519699557")
+        self.det_p = ttk.Entry(f, width=12)
+        self.det_p.insert(0, "")          # bỏ trống = dò chu kỳ mù (M3)
         self.det_p.grid(row=1, column=3, padx=4, sticky="w")
+        self.det_search = tk.BooleanVar(value=True)
+        ttk.Checkbutton(f, text=L.t("dò chu kỳ mù (FFT) khi không có P"),
+                        variable=self.det_search).grid(row=1, column=4,
+                                                       columnspan=2, sticky="w")
         self.det_iqn = ttk.Spinbox(f, from_=32, to=2048, increment=64, width=6)
         self.det_iqn.set(256)
         self.det_iqn.grid(row=1, column=4, padx=4, sticky="w")
@@ -688,6 +692,17 @@ class App:
             _lbl = ttk.Label(self.guard_box, text="—", foreground="#5f5f5f")
             _lbl.grid(row=_r // 2, column=(_r % 2) * 2 + 1, sticky="w", padx=6)
             self.guard_lbl[_k] = _lbl
+
+        # ---- M3: dò chu kỳ mù (FFT) — Top-N ứng viên
+        self.m3_box = ttk.LabelFrame(
+            self.tab_det, text=L.t("M3 — dò chu kỳ mù (FFT + sàng hài)"))
+        self.m3_box.pack(fill="x", padx=8, pady=(0, 8))
+        self.m3_lbl = ttk.Label(self.m3_box, text=L.t("chưa chạy — bấm Chạy phát hiện"),
+                                foreground="#5f5f5f")
+        self.m3_lbl.pack(side="left", padx=8, pady=4)
+        ttk.Button(self.m3_box, text=L.t("Mở hình fig3"),
+                   command=lambda: self.open_result_file("fig3_period.png")).pack(
+            side="right", padx=6, pady=4)
 
         bf = ttk.Frame(self.tab_det)
         bf.pack(fill="x", padx=8)
@@ -1225,9 +1240,13 @@ class App:
 
         self._last_metrics = None
 
+        want_search = bool(getattr(self, "det_search", None)
+                           and self.det_search.get())
+
         def job():
             self._last_metrics = psr_detect.detect(
-                path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq)
+                path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq,
+                search_period=want_search)
         self.run_bg(job, on_done=self._after_detect)
 
     def _fill_guard(self, m: dict) -> None:
@@ -1273,9 +1292,45 @@ class App:
             text="{} gap".format(met.get("n_gaps", 0)))
         self.guard_lbl["tags"].configure(text=tags)
 
+    def open_result_file(self, name: str) -> None:
+        """Mở một tệp trong thư mục kết quả của lần chạy gần nhất."""
+        m = getattr(self, "_last_metrics", None) or {}
+        d = m.get("out_dir")
+        p = os.path.join(d, name) if d else ""
+        if p and os.path.exists(p):
+            try:
+                os.startfile(p)          # noqa: S606 (Windows)
+            except Exception:
+                self.open_dir(os.path.dirname(p))
+        else:
+            self.log(f"Chưa có {name} — hãy chạy phát hiện trước.", "err")
+
+    def _fill_m3(self, m: dict) -> None:
+        """Hiển thị kết quả M3: P tốt nhất, SNR, số ứng viên Top-N."""
+        ps = (m or {}).get("period_search") or {}
+        if not ps:
+            self.m3_lbl.configure(text=L.t("chưa chạy (cần P tham chiếu hoặc --search-period)"))
+            return
+        if not ps.get("searched"):
+            self.m3_lbl.configure(text=L.t("lỗi: ") + str(ps.get("error"))[:60])
+            return
+        b = ps.get("best")
+        n = len(ps.get("candidates") or [])
+        if b:
+            txt = "P = {:.3f} ms · SNR {:.1f}σ · Top-{} ({} sau sàng hài)".format(
+                b["p_s"] * 1e3, b["snr"], n, ps.get("n_after_sift", n))
+        else:
+            txt = L.t("không có ứng viên vượt ngưỡng") + " ({} xét, {}σ)".format(
+                n, ps.get("threshold", 8))
+        self.m3_lbl.configure(text=txt, foreground="#1a7f37" if b else "#b36b00")
+
     def _after_detect(self):
         try:
             self._fill_guard(getattr(self, "_last_metrics", None) or {})
+        except Exception:
+            pass
+        try:
+            self._fill_m3(getattr(self, "_last_metrics", None) or {})
         except Exception:
             pass
         self._refresh_figure_list()
@@ -1329,6 +1384,11 @@ class App:
             os.startfile(p)
 
     def _result_file(self, suffix):
+        """Tệp trong thư mục kết quả của LẦN CHẠY gần nhất (results/<ngày>_<giờ>)."""
+        m = getattr(self, "_last_metrics", None) or {}
+        d = m.get("out_dir")
+        if d:
+            return os.path.join(d, suffix)
         stem = os.path.splitext(os.path.basename(self.det_file.get().strip()))[0]
         return os.path.join(RESULTS_DIR, stem, suffix)
 
@@ -1340,9 +1400,11 @@ class App:
             self.log(f"Chưa có báo cáo: {p}", "err")
 
     def open_last_result_dir(self):
-        stem = os.path.splitext(os.path.basename(self.det_file.get().strip()))[0]
-        d = os.path.join(RESULTS_DIR, stem)
-        self.open_dir(d if os.path.isdir(d) else RESULTS_DIR)
+        m = getattr(self, "_last_metrics", None) or {}
+        d = m.get("out_dir")
+        if not (d and os.path.isdir(d)):
+            d = RESULTS_DIR
+        self.open_dir(d)
 
     def open_metrics(self):
         p = self._result_file("detect_metrics.json")
@@ -1469,7 +1531,7 @@ class App:
 
 
 # ---------------------------------------------------------------- selfcheck EXE
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 
 def selfcheck() -> int:

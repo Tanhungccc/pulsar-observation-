@@ -14,6 +14,8 @@ Quy tắc bắt buộc (để không bao giờ sai ký hiệu / che dữ liệu)
 """
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -42,6 +44,16 @@ C_RFI = "#ff7f0e"       # cam: RFI
 
 _LEG_KW = dict(framealpha=1.0, facecolor="white", edgecolor="0.75",
                borderpad=0.4, labelspacing=0.3)
+# Đơn vị hợp lệ → khoảng độ lớn hợp lý của dữ liệu trên trục đó.
+# Dùng để phát hiện LỆCH BẬC (nhãn ghi ms nhưng dữ liệu là giây, v.v.).
+UNIT_SCALE = {
+    "ms": (1e-3, 1e8), "s": (1e-4, 1e6), "us": (1, 1e9), "µs": (1, 1e9),
+    "MHz": (1e-1, 1e5), "kHz": (1, 1e8), "Hz": (1, 1e9),
+    "pc cm-3": (1e-2, 1e5), "sigma": (1e-2, 1e6), "σ": (1e-2, 1e6),
+    "pha": (0.0, 2.5), "dB": (-2e2, 2e2), "deg": (0.0, 180.0), "°": (0.0, 180.0),
+    "%": (0.0, 100.0), "h": (1e-3, 1e4), "phut": (1e-2, 1e3), "min": (1e-2, 1e3),
+}
+
 _CORNERS = ("upper right", "upper left", "lower right", "lower left",
             "center right", "center left")
 
@@ -96,6 +108,59 @@ def _bbox_overlap_px(a, b) -> float:
     w = min(a.x1, b.x1) - max(a.x0, b.x0)
     h = min(a.y1, b.y1) - max(a.y0, b.y0)
     return max(0.0, w) * max(0.0, h)
+
+
+def _norm_unit(u: str) -> str:
+    """Chuẩn hoá tên đơn vị: bỏ $ { } , gộp khoảng trắng, đổi ký hiệu LaTeX."""
+    t = (u or "").replace("$", "").replace("{", "").replace("}", "")
+    t = t.replace("^{-3}", "-3").replace("^-3", "-3")
+    t = t.replace(chr(92) + "sigma", "sigma").strip()
+    return t
+
+
+def _axis_unit(ax, which: str):
+    """Đơn vị trong ngoặc cuối của nhãn trục (None nếu không có)."""
+    lab = ax.get_xlabel() if which == "x" else ax.get_ylabel()
+    if not lab:
+        return None
+    m = re.findall(r"[(]([^()]*)[)]\s*$", lab)
+    return _norm_unit(m[-1]) if m else None
+
+
+def _axis_magnitude(ax, which: str) -> float | None:
+    """Độ lớn trung vị của dữ liệu trên trục (bỏ qua axvline/axhline)."""
+    vals = []
+    for ln in ax.get_lines():
+        if not ln.get_visible():
+            continue
+        y = np.asarray(ln.get_ydata(), float).ravel()
+        x = np.asarray(ln.get_xdata(), float).ravel()
+        if x.size == 2 and np.isclose(x[0], x[1]) and np.allclose(np.abs(y), [0., 1.]):
+            continue
+        arr = x if which == "x" else y
+        arr = arr[np.isfinite(arr)]
+        if arr.size:
+            vals.append(arr)
+    if not vals:
+        return None
+    a = np.abs(np.concatenate(vals))
+    a = a[a > 0]
+    return float(np.median(a)) if a.size else None
+
+
+_TITLE_NUM = re.compile(r"(?<![A-Za-z0-9.=±])([0-9]+[.,][0-9]+)")
+
+
+def _title_units_missing(title: str) -> list:
+    """Số có phần thập phân trong tiêu đề mà KHÔNG kèm đơn vị."""
+    bad = []
+    for m in _TITLE_NUM.finditer(title or ""):
+        tail = (title[m.end():m.end() + 12] or "").strip()
+        if re.match(r"^(ms|s|us|µs|MHz|kHz|Hz|pc|σ|sigma|°|%|h|phút|giây|dB)",
+                    tail):
+            continue
+        bad.append(m.group(1))
+    return bad
 
 
 def _axes_bbox(ax):
@@ -245,6 +310,36 @@ def figure_report(fig) -> list:
             if n_pts > 0:
                 problems.append(dict(panel=name, kind="chu_de_len_duong_ve",
                                      detail=f'"{t.get_text()}" phủ {n_pts} điểm dữ liệu'))
+    # ĐƠN VỊ: mỗi trục phải có đơn vị trong ngoặc; độ lớn dữ liệu phải khớp
+    for i, ax in enumerate(fig.axes):
+        if getattr(ax, "get_label", lambda: "")() == "<colorbar>":
+            continue                       # colorbar có nhãn riêng, bỏ qua
+        name = (ax.get_title() or f"axes{i}").split("—")[0].strip()[:40]
+        for which, axis_name in (("x", "trục x"), ("y", "trục y")):
+            unit = _axis_unit(ax, which)
+            if unit is None:
+                lab = ax.get_xlabel() if which == "x" else ax.get_ylabel()
+                problems.append(dict(panel=name, kind="nhan_thieu_don_vi",
+                                     detail=f'{axis_name} "{lab}" thiếu đơn vị (..)'))
+                continue
+            rng = UNIT_SCALE.get(unit) or UNIT_SCALE.get(unit.lower())
+            if not rng:
+                continue                   # đơn vị lạ (ví dụ "đ.v. chuẩn hoá") → bỏ qua
+            mag = _axis_magnitude(ax, which)
+            if mag is None:
+                continue
+            lo, hi = rng
+            if not (lo <= mag <= hi):
+                problems.append(dict(
+                    panel=name, kind="don_vi_lech_bac",
+                    detail=(f'{axis_name} ghi "{unit}" nhưng |giá trị| ~ {mag:.3g} '
+                            f'→ lệch bậc (kỳ vọng {lo:g}…{hi:g})')))
+        miss = _title_units_missing(ax.get_title())
+        if miss:
+            problems.append(dict(panel=name, kind="tieu_de_thieu_don_vi",
+                                 detail="số không đơn vị trong tiêu đề: "
+                                        + ", ".join(miss[:3])))
+
     # tiêu đề: không tràn khỏi hình, không đè tiêu đề panel khác
     fbox = fig.bbox
     for i, ax in enumerate(fig.axes):
@@ -355,7 +450,7 @@ def plot_timeseries(t_s, series, peaks=None, ax=None, title="",
 
 def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
                   ax=None, title="Quét DM — xung đơn",
-                  ylabel="SNR lọc khớp tốt nhất", tag=True,
+                  ylabel="SNR lọc khớp (σ)", tag=True,
                   threshold=None):
     if ax is None:
         _, ax = plt.subplots(figsize=(7.2, 3.0))
@@ -382,6 +477,9 @@ def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
         ax.plot([x0, x1], [threshold, threshold], ls="-.", lw=1.0, color="0.45",
                 zorder=2, label=f"ngưỡng phát hiện {threshold:.0f}σ")
     if dm_meas is not None:
+        # marker TAM GIÁC ở đầu vạch = giá trị ĐO ĐƯỢC
+        ax.plot([dm_meas, dm_meas], [y_hi, y_hi], "v", color=C_PULSE, ms=6.5,
+                mec="k", mew=0.5, zorder=4)
         ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls=":", lw=1.9, color=C_PULSE,
                 zorder=3, label=f"DM đo được = {dm_meas:.2f} pc cm$^{{-3}}$")
     ax.set_xlim(x0 - 0.01 * (x1 - x0), x1 + 0.01 * (x1 - x0))
@@ -552,8 +650,8 @@ def plot_fold_snr_vs_dm(dm_grid, snr, fold_info, ax=None,
         ax.plot([g[sel][0], g[sel][-1]], [threshold, threshold], ls="-.",
                 lw=1.0, color="0.45", zorder=2, label=f"ngưỡng {threshold:.0f}σ")
     ax.set_xlabel("DM (pc cm$^{-3}$)")
-    ax.set_ylabel("SNR")
-    ax.set_title(f"{title} — SNR = {fold_info['snr']:.1f}")
+    ax.set_ylabel("SNR (σ)")
+    ax.set_title(f"{title} — SNR = {fold_info['snr']:.1f}σ")
     place_legend(ax)
     if tag:
         _tag(ax.figure)

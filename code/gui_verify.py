@@ -123,13 +123,13 @@ def main(fast=False):
     fil = os.path.join(gui_app.DATA_DIR, "B0329+54.fil")
     chk("file dữ liệu thật tồn tại", os.path.exists(fil),
         f"{os.path.getsize(fil)/1e6:.1f} MB")
-    chk("thư mục kết quả theo tên dữ liệu tồn tại",
-        os.path.isdir(os.path.join(gui_app.RESULTS_DIR, "B0329+54")),
-        os.path.join("results", "B0329+54"))
-    chk("cấu trúc mỗi-lần-một-thư-mục",
-        all(os.path.isdir(os.path.join(gui_app.RESULTS_DIR, d))
-            for d in ("B0329+54",)),
-        str(sorted(os.listdir(gui_app.RESULTS_DIR))))
+    _runs = [d for d in os.listdir(gui_app.RESULTS_DIR)
+             if os.path.isdir(os.path.join(gui_app.RESULTS_DIR, d))]
+    _ts = [d for d in _runs if len(d.split("_")[0]) == 8 and "_" in d]
+    chk("có thư mục kết quả dạng <ngày>_<giờ>",
+        bool(_ts), f"{len(_ts)} lần chạy, ví dụ {sorted(_ts)[-1] if _ts else '—'}")
+    chk("mỗi lần chạy = một thư mục riêng (không ghi đè)",
+        len(_ts) == len(set(_ts)) and len(_ts) >= 1, f"{len(_ts)} thư mục timestamp")
 
     # =============================================== B. NÚT TỒN TẠI & GẮN HÀM
     print("\n=== B. NÚT BẤM ĐƯỢC GẮN HÀM ===")
@@ -156,12 +156,14 @@ def main(fast=False):
 
     app.run_detect()
     chk("phát hiện chạy xong không treo", pump(root, app), "busy=False")
-    out_dir = os.path.join(gui_app.RESULTS_DIR, "B0329+54")
+    out_dir = (getattr(app, "_last_metrics", {}) or {}).get("out_dir", "")
     need = ["fig1_overview.png", "fig2_detection.png",
             "detect_metrics.json", "detect_report.txt"]
-    chk("kết quả gom đúng 1 thư mục results/B0329+54",
-        all(os.path.exists(os.path.join(out_dir, f)) for f in need),
-        ", ".join(f for f in need if os.path.exists(os.path.join(out_dir, f))))
+    chk("kết quả gom đúng 1 thư mục con của results/",
+        bool(out_dir) and all(os.path.exists(os.path.join(out_dir, f))
+                              for f in need),
+        os.path.basename(out_dir) + ": "
+        + ", ".join(f for f in need if os.path.exists(os.path.join(out_dir, f))))
     rep = os.path.join(out_dir, "detect_report.txt")
     rep_txt = open(rep, encoding="utf-8").read() if os.path.exists(rep) else ""
     chk("báo cáo có số liệu DM + xác nhận", "DM" in rep_txt and "[OK]" in rep_txt,
@@ -262,6 +264,47 @@ def main(fast=False):
             str(app.plan_tree.item(picked)["values"][-1]))
     chk("tab 2 có khung ingest_guard (10 mục)",
         len(getattr(app, "guard_lbl", {})) == 10, str(len(getattr(app, "guard_lbl", {}))))
+
+    # =============================================== D0d. M3 + ĐƠN VỊ HÌNH
+    print(chr(10) + "=== D0d. M3 (dò chu kỳ mù) + kiểm tra đơn vị hình ===")
+    chk("tab 2 có khung M3 + nhãn kết quả",
+        hasattr(app, "m3_lbl") and hasattr(app, "m3_box"),
+        (app.m3_lbl.cget("text")[:40] if hasattr(app, "m3_lbl") else "—"))
+    _simf = os.path.join(gui_app.ROOT_DIR, "data", "extra", "sim_blind_253ms.fil")
+    if os.path.exists(_simf):
+        app.det_file.delete(0, "end"); app.det_file.insert(0, _simf)
+        app.det_dm.delete(0, "end"); app.det_dm.insert(0, "3.0")
+        app.det_p.delete(0, "end")
+        app.run_detect(); pump(root, app, 400)
+        _t = app.m3_lbl.cget("text")
+        chk("M3 trong GUI tìm đúng P của tín hiệu mô phỏng (253 ms)",
+            "253" in _t, _t)
+        _m = getattr(app, "_last_metrics", {}) or {}
+        chk("hình 4 panel sạch lỗi bố cục + đơn vị (figure_check)",
+            _m.get("figure_check") == [], str(_m.get("figure_check"))[:80])
+    else:
+        chk("có dữ liệu mô phỏng để thử M3", False, _simf)
+
+    import psr_plots as _pp
+    import matplotlib.pyplot as _mpl
+    _f, _a = _mpl.subplots()
+    _a.plot([1, 2, 3], [1, 2, 3])
+    _a.set_xlabel("thời gian")               # thiếu đơn vị
+    _a.set_title("P = 0.25")                 # số không đơn vị
+    _issues = _pp.figure_report(_f)
+    _kinds = {i["kind"] for i in _issues}
+    chk("figure_report bắt được nhãn thiếu đơn vị",
+        "nhan_thieu_don_vi" in _kinds, str(sorted(_kinds)))
+    chk("figure_report bắt được số thiếu đơn vị trong tiêu đề",
+        "tieu_de_thieu_don_vi" in _kinds, str(sorted(_kinds)))
+    _mpl.close(_f)
+    _f2, _a2 = _mpl.subplots()
+    _a2.plot([0, 1e-3, 2e-3], [1, 2, 3])
+    _a2.set_xlabel("tần số (MHz)")            # 1e-3 MHz = 1 kHz → lệch bậc
+    _kinds2 = {i["kind"] for i in _pp.figure_report(_f2)}
+    chk("figure_report bắt được lệch bậc đơn vị trục",
+        "don_vi_lech_bac" in _kinds2, str(sorted(_kinds2)))
+    _mpl.close(_f2)
 
     # =============================================== D. TAB 1 — GHI TỰ ĐỘNG
     print("\n=== D. TAB 1: GHI TỰ ĐỘNG (mock) ===")
@@ -380,12 +423,12 @@ def main(fast=False):
         app.det_p.delete(0, "end"); app.det_p.insert(0, "")
         app.det_iqn.set(256)
         app.run_detect(); ok = pump(root, app, 300)
-        stem = "crab-giantpulse"
-        d = os.path.join(gui_app.RESULTS_DIR, stem)
+        d = (getattr(app, "_last_metrics", {}) or {}).get("out_dir", "")
         need = ["fig1_overview.png", "fig2_detection.png",
                 "detect_metrics.json", "detect_report.txt"]
-        chk("IQ thô → channelize → kết quả trong results/<tên>",
-            ok and all(os.path.exists(os.path.join(d, f)) for f in need), d)
+        chk("IQ thô → channelize → kết quả trong results/<ngày>_<giờ>",
+            ok and bool(d) and all(os.path.exists(os.path.join(d, f)) for f in need),
+            os.path.basename(d))
         rep = os.path.join(d, "detect_report.txt")
         txt = open(rep, encoding="utf-8").read() if os.path.exists(rep) else ""
         chk("báo cáo IQ có DM đúng (56.7x)", "56.7" in txt,

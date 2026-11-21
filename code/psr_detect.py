@@ -744,8 +744,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                             f"{f_g.min():.0f}–{f_g.max():.0f} MHz, "
                             f"tsamp = {tsamp*1e6:.0f} µs")
     pp.plot_waterfall(dyn_dd, f_g, tsamp, ax=ax[1],
-                      title=f"(b) ĐÃ khử tán sắc DM = {dm_best:.2f} pc cm$^{{-3}}$ "
-                            f"— các vệt thẳng đứng là xung")
+                      title=f"(b) ĐÃ khử tán sắc — DM = {dm_best:.2f} "
+                            f"pc cm$^{{-3}}$")
     fig.tight_layout()
     pp.finalize(fig)
     f1 = os.path.join(out_dir, "fig1_overview.png")
@@ -758,8 +758,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                        peaks=pulses_ok, ax=ax[0, 0],
                        ylabel="công suất dư (đ.v. chuẩn hoá)",
                        title="(a) Chuỗi thời gian sau khử tán sắc")
-    _scan_title = ("(b) Quét DM — fold tại P tham chiếu" if use_fold_scan
-                   else "(b) Quét DM — lọc khớp boxcar đa độ rộng")
+    _scan_title = ("(b) Quét DM — fold tại P" if use_fold_scan
+                   else "(b) Quét DM — boxcar đa độ rộng")
     _detected = float(snr_dm[k]) >= pulse_thresh
     if not _detected:
         _scan_title += f" — KHÔNG phát hiện (đỉnh {snr_dm[k]:.1f}σ < {pulse_thresh:.0f}σ)"
@@ -785,7 +785,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         pk_in = [p for p in pulses_ok if abs(p["t_s"] * 1e3 - t0_ms) <= hw]
         pp.plot_pulse_profile(t_ms[sel], prof_show[sel], pk_in[:3], met,
                               ax=ax[1, 0], xlim_ms=(t0_ms - hw, t0_ms + hw),
-                              title=f"(c) Cận cảnh xung (±{hw:.0f} ms)")
+                              title=f"(c) Cận cảnh xung (±{hw:.1f} ms)")
     elif fold_info is not None and fold_info["snr"] > 8.0:
         pp.plot_fold_profile(fold_info, ax=ax[1, 0],
                              title="(c) Hồ sơ fold tại P tham chiếu")
@@ -806,8 +806,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         pp.plot_subband_lags(r["freqs_mhz"], lags_rel,
                              r["dm"], r["dm_err"],
                              ax=ax[1, 1],
-                             title=f"(d) Trễ dải con của xung 1 "
-                                   f"(t = {pulses_ok[0]['t_s']*1e3:.1f} ms)")
+                             title=f"(d) Trễ dải con — xung t = "
+                                   f"{pulses_ok[0]['t_s']*1e3:.1f} ms")
     elif fold_info is not None:
         pp.plot_fold_snr_vs_dm(dm_grid, snr_dm, fold_info, ax=ax[1, 1],
                                threshold=pulse_thresh,
@@ -817,6 +817,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                       ha="center", va="center", fontsize=9, color="0.35",
                       transform=ax[1, 1].transAxes)
         ax[1, 1].set_xticks([]); ax[1, 1].set_yticks([])
+        ax[1, 1].set_xlabel("tần số trung bình dải con (MHz)")
+        ax[1, 1].set_ylabel("trễ so với dải cao nhất (ms)")
         ax[1, 1].set_title("(d) Trễ dải con — không áp dụng")
     # tiêu đề chung: chỉ ghi nguồn + kính NẾU header có — không bịa tên kính
     tel = (h.get("telescope") or h.get("instrument") or "").strip()

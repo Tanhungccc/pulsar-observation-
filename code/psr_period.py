@@ -128,6 +128,11 @@ def blind_period_search(series, tsamp_s: float, fmin_hz: float = 0.1,
     #   1) lấy các đỉnh FFT thô;  2) mở rộng họ hài k·P (k=1..4);
     #   3) fold từng chu kỳ → SNR + số đỉnh trong hồ sơ;
     #   4) chu kỳ CƠ BẢN = chu kỳ NGẮN NHẤT có 1 đỉnh và SNR gần đỉnh nhất.
+    # Chặn chu kỳ phi lý: cần ≥ 5 chu kỳ quan sát và ≥ 8 mẫu mỗi chu kỳ,
+    # nếu không thì fold chỉ có vài mẫu/bin → SNR bùng nổ giả (đã gặp 5,8e12σ).
+    t_obs = len(x) * ts
+    p_limit = t_obs / 5.0
+    raw = [c for c in raw if float(c["period_s"]) <= p_limit]
     fam_src = raw[:min(len(raw), 10)]
     family = expand_harmonic_family(fam_src, pmax_s=pmax_s)
     out = []
@@ -138,7 +143,9 @@ def blind_period_search(series, tsamp_s: float, fmin_hz: float = 0.1,
             n_pk = count_profile_peaks(prof1)
         except Exception:
             continue
-        score = float(snr1) * (1.0 if n_pk == 1 else 0.4)
+        if float(p1) > p_limit or float(p1) / ts < 8:
+            continue
+        score = min(float(snr1), 1e4) * (1.0 if n_pk == 1 else 0.4)
         out.append(dict(p_s=round(float(p1), 9), snr=round(float(snr1), 2),
                         score=round(score, 2), n_peaks=int(n_pk),
                         power_ratio=round(float(c.get("power_ratio", 0)), 2),
@@ -188,7 +195,7 @@ def plot_period_search(res, ax=None, title="", tag=True):
         a0.barh(range(len(vals))[::-1], vals, color=pp.C_FIT, height=0.62)
         a0.set_yticks(range(len(vals))[::-1])
         a0.set_yticklabels(names, fontsize=8)
-        a0.set_xlabel("SNR fold (sau khi sàng hài)")
+        a0.set_xlabel("SNR fold (σ)")
         a0.axvline(res.get("threshold", 8.0), color=pp.C_PULSE, ls="--", lw=1.2,
                    label=f"ngưỡng {res.get('threshold', 8.0):.0f}σ")
         a0.legend(loc="lower right", fontsize=8)
