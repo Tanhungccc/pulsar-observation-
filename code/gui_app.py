@@ -220,18 +220,27 @@ class TargetDialog(tk.Toplevel):
         self.title(L.t("Mục tiêu — thêm/sửa (lưu vào targets_user.json)"))
         self.transient(master)
         self.resizable(False, False)
+        try:                                     # nền theo chủ đề đang dùng
+            pal = theme.P()
+            self.configure(background=pal["bg"])
+        except Exception:                        # noqa: BLE001
+            pass
         self.vars = {}
         f = ttk.Frame(self)
-        f.pack(fill="both", padx=10, pady=10)
+        f.pack(fill="both", padx=theme.sp(12), pady=theme.sp(12))
+        ttk.Label(f, text=L.t("MỤC TIÊU"), style="H2.TLabel").grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=theme.sp(4),
+            pady=(0, theme.sp(6)))
         tgt = psr_targets.find_target(edit_name) if edit_name else None
-        for r, (key, label, hint, w) in enumerate(self.FIELDS):
-            ttk.Label(f, text=label + ":").grid(row=r, column=0, sticky="w",
-                                                 padx=4, pady=3)
+        for r, (key, label, hint, w) in enumerate(self.FIELDS, start=1):
+            ttk.Label(f, text=label + ":", style="CardMuted.TLabel").grid(
+                row=r, column=0, sticky="w", padx=theme.sp(4), pady=theme.sp(2))
             var = tk.StringVar()
             ent = ttk.Entry(f, textvariable=var, width=w)
-            ent.grid(row=r, column=1, sticky="we", padx=4, pady=3)
-            ttk.Label(f, text=hint, foreground="#5f5f5f").grid(
-                row=r, column=2, sticky="w", padx=4)
+            ent.grid(row=r, column=1, sticky="we", padx=theme.sp(4),
+                     pady=theme.sp(2))
+            ttk.Label(f, text=hint, style="CardMuted.TLabel").grid(
+                row=r, column=2, sticky="w", padx=theme.sp(4))
             self.vars[key] = var
             if tgt and tgt.get(key) not in (None, ""):
                 v = tgt[key]
@@ -239,19 +248,21 @@ class TargetDialog(tk.Toplevel):
                     var.set(f"{float(v):.5f}" if isinstance(v, (int, float)) else str(v))
                 else:
                     var.set(str(v))
-        self.msg = ttk.Label(f, text="", foreground="#c00", wraplength=520,
+        self.msg = ttk.Label(f, text="", style="Err.TLabel", wraplength=520,
                              justify="left")
-        self.msg.grid(row=len(self.FIELDS), column=0, columnspan=3, sticky="w",
-                      padx=4, pady=(6, 0))
+        self.msg.grid(row=len(self.FIELDS) + 1, column=0, columnspan=3,
+                      sticky="w", padx=theme.sp(4), pady=(theme.sp(6), 0))
         bf = ttk.Frame(f)
-        bf.grid(row=len(self.FIELDS) + 1, column=0, columnspan=3, sticky="we",
-                pady=(10, 0))
-        ttk.Button(bf, text=L.t("Lưu"), command=self._save).pack(side="left", padx=4)
+        bf.grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="we",
+                pady=(theme.sp(10), 0))
+        ttk.Button(bf, text=L.t("Lưu"), style="Primary.TButton",
+                   command=self._save).pack(side="left", padx=theme.sp(4))
         if tgt and tgt.get("custom"):
-            ttk.Button(bf, text=L.t("Xoá mục tiêu"), command=self._delete).pack(
-                side="left", padx=4)
-        ttk.Button(bf, text=L.t("Đóng"), command=self.destroy).pack(side="right", padx=4)
-        ttk.Label(f, foreground="#5f5f5f", wraplength=560, justify="left", text=(
+            ttk.Button(bf, text=L.t("Xoá mục tiêu"), style="Stop.TButton",
+                       command=self._delete).pack(side="left", padx=theme.sp(4))
+        ttk.Button(bf, text=L.t("Đóng"), style="Ghost.TButton",
+                   command=self.destroy).pack(side="right", padx=theme.sp(4))
+        ttk.Label(f, style="CardMuted.TLabel", wraplength=560, justify="left", text=(
             "· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ."
         )).grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="w",
                 padx=4, pady=(8, 0))
