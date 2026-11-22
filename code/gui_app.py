@@ -158,6 +158,7 @@ import psr_detect            # noqa: E402
 import record_unattended     # noqa: E402
 import psr_paths             # noqa: E402
 import psr_i18n as L         # noqa: E402
+import psr_theme as theme    # noqa: E402  (bộ quy chuẩn "Observatory Workspace")
 
 DATA_DIR = psr_paths.data_dir()          # một nơi duy nhất quyết định đường dẫn
 RESULTS_DIR = psr_paths.results_dir()
@@ -309,8 +310,18 @@ class App:
         self.root = root
         self.root.title(L.t("Pulsar Observation — POAM RTP-3.7 (TP.HCM)"))
         self.icon_info = apply_icon(self.root)
-        self.root.geometry("1100x780")
-        self.root.minsize(900, 620)
+        # Kích thước cửa sổ LẤY THEO MÀN HÌNH THẬT (đọc sau khi đã DPI-aware):
+        # cửa sổ cố định 1240×710 trông nhỏ trên màn hình đang để 125–150 %.
+        # Lấy ~94 % bề ngang / ~92 % chiều cao khả dụng, chặn trên để không
+        # choáng, và căn giữa. Không phóng font giả — chỉ dùng đúng số pixel.
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        w = max(1100, min(int(sw * 0.94), 1680))
+        h = max(680, min(int(sh * 0.92), 1040))
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 3)
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self.root.minsize(min(1100, w), min(680, h))
+        self._win_size = (w, h)
 
         self.q: queue.Queue = queue.Queue()      # chuỗi log từ thread phụ
         self.cbq: queue.Queue = queue.Queue()    # callable cần chạy ở MAIN thread
@@ -328,16 +339,23 @@ class App:
 
     # ------------------------------------------------------------ giao diện
     def _build_style(self):
-        st = ttk.Style()
-        if "vista" in st.theme_names():
-            st.theme_use("vista")
-        st.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
-        st.configure("TButton", font=("Segoe UI", 9))
-        st.configure("TLabel", font=("Segoe UI", 9))
+        """Áp bộ quy chuẩn giao diện (psr_theme): màu, kiểu chữ, ttk style."""
+        self.ui = theme.apply_styles(self.root)
+        self.pal = self.ui["palette"]
+        self.fnt = self.ui["fonts"]
+        try:                                     # nền cửa sổ + vùng tab
+            self.root.configure(background=self.pal["bg"])
+        except tk.TclError:
+            pass
 
     def _build_layout(self):
+        # ---- NHẬT KÝ CHUNG: đóng gói TRƯỚC với side="bottom" để nó luôn nằm
+        # trong khung nhìn; notebook nhận phần cao còn lại (trước đây pack sau
+        # nên khi nội dung tab dài, nhật ký bị đẩy ra ngoài màn hình).
+        self._build_shared_log()
+
         self.nb = ttk.Notebook(self.root)
-        self.nb.pack(fill="both", expand=True, padx=6, pady=6)
+        self.nb.pack(side="top", fill="both", expand=True, padx=6, pady=(6, 4))
 
         # PHƯƠNG ÁN B: 3 tab — Kế hoạch & Ghi / Phát hiện / Cài đặt & Công cụ
         self.tab_plan = ttk.Frame(self.nb)
@@ -356,18 +374,54 @@ class App:
         self._build_detect_tab()        # tab 2: phát hiện + guard
         self._build_settings_tab()      # tab 3: hồ sơ, danh mục, nơi lưu, công cụ
 
-        # ---- khung log chung (dưới cùng)
-        lf = ttk.LabelFrame(self.root, text=L.t("Nhật ký"))
-        lf.pack(fill="both", expand=False, padx=6, pady=(0, 6))
-        self.log_text = tk.Text(lf, height=10, wrap="word",
-                                font=("Consolas", 9), state="disabled",
-                                bg="#111", fg="#d8d8d8")
-        sb = ttk.Scrollbar(lf, command=self.log_text.yview)
+    # ---- nhật ký dùng chung cho cả 3 tab ------------------------------------
+    def _build_shared_log(self):
+        """Khung nhật ký ở ĐÁY ứng dụng: 3 dòng khi thu gọn, có nút mở rộng.
+
+        Mặc định 3 dòng để không chiếm chỗ của bảng/biểu đồ; dòng lỗi luôn
+        nổi bật (biểu tượng ✕ + màu + nền) nên khi thu gọn vẫn thấy.
+        """
+        pal, f = self.pal, self.fnt
+        wrap = ttk.Frame(self.root)
+        wrap.pack(side="bottom", fill="x", padx=6, pady=(0, 6))
+        head = ttk.Frame(wrap)
+        head.pack(fill="x")
+        ttk.Label(head, text=L.t("Nhật ký hoạt động").upper(),
+                  style="H2.TLabel").pack(side="left", padx=(2, 8), pady=(2, 2))
+        self.log_count = ttk.Label(head, text="", style="Muted.TLabel")
+        self.log_count.pack(side="left")
+        self.btn_log = ttk.Button(head, text=L.t("Mở rộng ▾"), width=12,
+                                  style="Ghost.TButton", command=self.toggle_log)
+        self.btn_log.pack(side="right", pady=(0, 2))
+
+        box = tk.Frame(wrap, highlightthickness=1,
+                       highlightbackground=pal["line"], bd=0)
+        box.pack(fill="x", pady=(2, 0))
+        self.log_text = tk.Text(box, height=3, wrap="word", relief="flat",
+                                borderwidth=0, state="disabled", font=f["log"], padx=theme.sp(8), pady=theme.sp(4))
+        theme.paint_tk(self.log_text, "log")
+        sb = ttk.Scrollbar(box, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=sb.set)
-        self.log_text.pack(side="left", fill="both", expand=True, padx=4, pady=4)
+        self.log_text.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
-        self.log_text.tag_configure("err", foreground="#ff8a8a")
-        self.log_text.tag_configure("ok", foreground="#8affa0")
+        self.log_text.tag_configure("err", foreground=pal["err"])
+        self.log_text.tag_configure("ok", foreground=pal["ok"])
+        self.log_text.tag_configure("warn", foreground=pal["warn"])
+        self.log_text.tag_configure("time", foreground=pal["muted"])
+        self.log_expanded = False
+
+    def toggle_log(self) -> None:
+        """Thu gọn (3 dòng) ↔ mở rộng (10 dòng)."""
+        self.log_expanded = not getattr(self, "log_expanded", False)
+        try:
+            self.log_text.configure(height=10 if self.log_expanded else 3)
+            self.btn_log.configure(
+                text=L.t("Thu gọn ▴") if self.log_expanded else L.t("Mở rộng ▾"))
+        except tk.TclError:
+            pass
+
+    def log_lines(self) -> list[str]:
+        return self.log_text.get("1.0", "end").splitlines()
 
     # ---- TAB 1: ghi tự động
 
@@ -459,7 +513,7 @@ class App:
         cols = ("tgt", "tr", "alt", "snr", "need", "dmmax")
         self.plan_tree = ttk.Treeview(box, columns=cols, show="headings", height=6)
         heads = ("Mục tiêu", "Transit", "Alt max", "SNR/giờ", "→ SNR 8", "dm_max quét")
-        widths = (180, 80, 80, 90, 110, 120)
+        widths = tuple(theme.sp(v) for v in (180, 80, 80, 90, 110, 120))
         anchors = ("w", "center", "center", "e", "e", "e")
         for c, ttl, w, anc in zip(cols, heads, widths, anchors):
             self.plan_tree.heading(c, text=ttl)
@@ -854,6 +908,8 @@ class App:
                 self.log(s.rstrip())
         except queue.Empty:
             pass
+        except tk.TclError:            # cửa sổ đã đóng giữa chừng
+            return
         try:
             while True:
                 fn = self.cbq.get_nowait()
@@ -863,7 +919,12 @@ class App:
                     self.log(f"Lỗi xử lý callback UI: {e!r}", "err")
         except queue.Empty:
             pass
-        self.root.after(120, self._poll_queue)
+        try:
+            self._poll_id = self.root.after(120, self._poll_queue)
+        except tk.TclError:
+            # root đã bị destroy → KHÔNG hẹn lại nữa (nếu không Tcl báo
+            # 'invalid command name "..._poll_queue"' lúc thoát)
+            self._poll_id = None
 
     def run_bg(self, fn, *args, on_done=None, **kwargs):
         """Chạy hàm nặng trong thread; log tự động; khoá nút khi đang chạy."""
@@ -1724,9 +1785,59 @@ def selfcheck() -> int:
     return 0 if ok else 1
 
 
+def enable_dpi_awareness() -> tuple[float, bool]:
+    """Cho Windows biết app tự vẽ theo DPI → chữ KHÔNG bị kéo giãn bitmap.
+
+    Đây là nguyên nhân chính của “chữ mờ như độ phân giải thấp”: ở màn
+    1366×768 đặt 125–150 %, tiến trình KHÔNG khai báo DPI-aware sẽ bị Windows
+    phóng toàn bộ cửa sổ bằng nội suy (title bar vẫn nét vì Windows tự vẽ).
+
+    Thử lần lượt 3 API (mỗi cái đều KIỂM CHỨNG lại bằng GetProcessDpiAwareness):
+      1. SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) — Win 10 1703+
+      2. SetProcessDpiAwareness(1)      — Win 8.1+
+      3. SetProcessDPIAware()          — Win 7
+    Trả về (tỉ lệ DPI/96, đã_aware).
+    """
+    scale, aware = 1.0, False
+    if sys.platform != "win32":
+        return scale, True
+    try:
+        import ctypes
+        u32 = ctypes.windll.user32
+        try:                       # 1) per-monitor v2
+            u32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        except Exception:          # noqa: BLE001
+            try:                   # 2) system aware
+                ctypes.windll.shcore.SetProcessDpiAwareness(1)
+            except Exception:      # noqa: BLE001
+                try:               # 3) Win 7
+                    u32.SetProcessDPIAware()
+                except Exception:  # noqa: BLE001
+                    pass
+        try:                       # kiểm chứng thực sự đã aware hay chưa
+            val = ctypes.c_int(0)
+            ctypes.windll.shcore.GetProcessDpiAwareness(None, ctypes.byref(val))
+            aware = val.value > 0
+        except Exception:          # noqa: BLE001
+            aware = True           # API cũ không có → coi như đã gọi thành công
+        hdc = u32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)   # LOGPIXELSX
+        u32.ReleaseDC(0, hdc)
+        if dpi:
+            scale = round(dpi / 96.0 * 2) / 2
+    except Exception:              # noqa: BLE001
+        pass
+    return max(1.0, scale), aware
+
+
 def main():
     if "--selfcheck" in sys.argv:
         sys.exit(selfcheck())
+    dpi_scale, aware = enable_dpi_awareness()   # PHẢI trước khi tạo cửa sổ Tk
+    if not aware:
+        # Không khai báo được DPI → Windows sẽ kéo giãn bitmap (chữ nhoè).
+        # Cảnh báo rõ thay vì im lặng cho người dùng tưởng app bị lỗi font.
+        sys.stderr.write("[cảnh báo] không bật được DPI awareness — chữ có thể nhoè\n")
     try:                               # bảo đảm data/, results/, configs/ tồn tại
         import psr_paths as _p
         import psr_site as _s
@@ -1741,6 +1852,18 @@ def main():
         except Exception:
             pass
     root = tk.Tk()
+    try:
+        # CỐ ĐỊNH 96/72: 1 pt = 1,333 px. Phóng to giao diện do psr_theme.sp()
+        # và cỡ chữ đảm nhiệm — nếu nhân thêm DPI ở đây thì mọi thứ bị phóng
+        # 2 lần (chữ khổng lồ, cột bảng tràn ra ngoài cửa sổ).
+        root.tk.call("tk", "scaling", 96.0 / 72.0)
+    except tk.TclError:
+        pass
+    # Hệ số giao diện: mặc định theo DPI THẬT (như mọi app Windows), vẫn vẽ ở
+    # pixel nguyên nên NÉT; người dùng đổi được 100/115/130 % trong Cài đặt.
+    if not (os.environ.get("PSR_UI_SCALE")
+            or (psr_paths.load_settings() or {}).get("ui_scale")):
+        theme.set_scale(min(1.5, max(1.0, dpi_scale)), persist=False)
     App(root)
     root.mainloop()
 
