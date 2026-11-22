@@ -26,8 +26,13 @@ import gui_app                      # noqa: E402
 R = []
 
 
+FAILED: list = []
+
+
 def chk(name, ok, detail=""):
     R.append(ok)
+    if not ok:                       # ghi lại để in ở CUỐI (không bị lẫn giữa log)
+        FAILED.append((name, detail))
     print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f"  — {detail}" if detail else ""))
 
 
@@ -452,6 +457,10 @@ def main(fast=False):
     root.destroy()
     n = sum(R)
     print(f"\n{n}/{len(R)} kiểm tra PASS")
+    if FAILED:          # in ở CUỐI: stdout có lúc bị chuyển vào widget nên dòng
+        print("KHÔNG ĐẠT:")   # FAIL giữa chừng có thể bị mất khỏi terminal
+        for _n, _d in FAILED:
+            print(f"  X {_n}  - {_d}")
     return 0 if n == len(R) else 1
 
 
