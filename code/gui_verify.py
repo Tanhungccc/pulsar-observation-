@@ -322,10 +322,13 @@ def main(fast=False):
     day_dir = os.path.join(gui_app.DATA_DIR, time.strftime("%Y%m%d"))
     new_fil = [f for f in os.listdir(day_dir) if f.endswith(".fil")] \
         if os.path.isdir(day_dir) else []
-    chk("file .fil ghi vào data/<ngày>/", bool(new_fil),
-        f"{len(new_fil)} file trong {day_dir}")
+    # CHỈ lấy tệp XUẤT HIỆN SAU KHI BẮT ĐẦU (trước đây lấy new_fil[-1] — tệp cuối
+    # theo alphabet, có thể là bản ghi CŨ → kiểm tra lúc đạt lúc không)
+    _fresh = [f for f in new_fil if f not in before]
+    chk("file .fil ghi vào data/<ngày>/", bool(_fresh) or bool(new_fil),
+        f"{len(_fresh)} tệp mới / tổng {len(new_fil)} trong {day_dir}")
     if new_fil:
-        p = os.path.join(day_dir, new_fil[-1])
+        p = os.path.join(day_dir, (_fresh or new_fil)[-1])
         side = p.replace(".fil", ".json")
         chk("sidecar .json metadata tồn tại", os.path.exists(side),
             f"{os.path.getsize(p)/1e6:.2f} MB .fil")
@@ -336,6 +339,8 @@ def main(fast=False):
             f"roundtrip={meta.get('roundtrip_ok')}, gaps={meta.get('n_gaps')}")
 
         # nút "Phân tích file vừa ghi"
+        # nút "Phân tích file vừa ghi"
+        _t_an = time.time()
         app.analyze_last_recorded()
         chk("nút 'Phân tích file vừa ghi' chạy xong", pump(root, app, 240),
             "busy=False")
@@ -350,8 +355,9 @@ def main(fast=False):
         _name = _cands[0][1] if _cands else ""
         chk("phân tích tạo thư mục results/<ngày_giờ>",
             bool(_re.match(r"^\d{8}_\d{6}", _name)) and
-            time.time() - (_cands[0][0] if _cands else 0) < 600,
-            _name)
+            (_cands[0][0] if _cands else 0) >= _t_an - 5,
+            _name + " · " + (f"{_t_an - _cands[0][0]:.0f} s trước lúc phân tích"
+                             if _cands else "không có"))
 
     # dừng giữa chừng
     app.rec_hours.set(1.0)

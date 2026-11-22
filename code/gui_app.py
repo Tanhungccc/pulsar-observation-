@@ -1531,7 +1531,7 @@ class App:
 
 
 # ---------------------------------------------------------------- selfcheck EXE
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 
 def selfcheck() -> int:
