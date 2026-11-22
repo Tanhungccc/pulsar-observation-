@@ -353,6 +353,8 @@ class App:
             pass
 
     def _build_layout(self):
+        self._build_header()          # thanh tiêu đề: tên trạm + Sáng/Tối + VI/EN
+
         # ---- NHẬT KÝ CHUNG: đóng gói TRƯỚC với side="bottom" để nó luôn nằm
         # trong khung nhìn; notebook nhận phần cao còn lại (trước đây pack sau
         # nên khi nội dung tab dài, nhật ký bị đẩy ra ngoài màn hình).
@@ -377,6 +379,60 @@ class App:
         self._build_recorder_tab()      # tab 1: bảng kế hoạch + phiên ghi
         self._build_detect_tab()        # tab 2: phát hiện + guard
         self._build_settings_tab()      # tab 3: hồ sơ, danh mục, nơi lưu, công cụ
+
+    def _build_header(self) -> None:
+        """Thanh tiêu đề (nền đậm, cạnh vuông): tên trạm · kính · băng + hai nút
+        phụ (Sáng/Tối, VI/EN). Không đặt chip trạng thái ở đây để khỏi trùng với
+        chip trạng thái trong từng màn hình.
+        """
+        try:
+            import psr_site as _site
+            prof = _site.active_profile()
+            meta = (f"{prof.site.name} · {prof.telescope.name} · "
+                    f"{prof.telescope.diameter_m} m")
+        except Exception:                        # noqa: BLE001
+            meta = ""
+        self.header = tk.Frame(self.root, background=self.pal["header"],
+                               highlightthickness=0, bd=0)
+        self.header.pack(side="top", fill="x")
+        inner = ttk.Frame(self.header, style="Header.TFrame")
+        inner.pack(fill="x", padx=theme.sp(10), pady=theme.sp(6))
+        ttk.Label(inner, text="PULSAR OBSERVATION",
+                  style="HeaderBrand.TLabel").pack(side="left")
+        ttk.Label(inner, text="   " + meta,
+                  style="HeaderMeta.TLabel").pack(side="left", padx=(theme.sp(6), 0))
+
+        _dark = theme.mode() == "dark"
+        self.btn_theme = ttk.Button(
+            inner, text=L.t("Tối") if _dark else L.t("Sáng"),
+            style="Header.TButton", width=9, command=self._toggle_theme)
+        self.btn_theme.pack(side="right")
+        self.btn_lang = ttk.Button(inner, text="VI / EN", style="Header.TButton",
+                                   width=8, command=self._toggle_language)
+        self.btn_lang.pack(side="right", padx=(0, theme.sp(6)))
+
+    def _toggle_theme(self) -> None:
+        """Đổi Sáng/Tối: ghi settings.json rồi khởi động lại (Tk không có cơ chế
+        theme động như CSS nên phải dựng lại widget để màu đồng bộ)."""
+        new = theme.toggle()
+        try:
+            theme.set_mode(new)
+        except Exception as e:                   # noqa: BLE001
+            self.log(f"Không đổi được giao diện: {e!r}", "err")
+            return
+        self.log(L.t("Giao diện: {m} — khởi động lại…").format(
+            m=("Tối" if new == "dark" else "Sáng")), "ok")
+        self.root.after(150, self.restart_app)
+
+    def _toggle_language(self) -> None:
+        """Chuyển VI ↔ EN (giữ hành vi cũ: cần khởi động lại)."""
+        try:
+            nxt = "en" if L.current() == "vi" else "vi"
+            L.set_lang(nxt)
+            self.log(L.t("Ngôn ngữ: {x} — khởi động lại…").format(x=nxt.upper()), "ok")
+            self.root.after(150, self.restart_app)
+        except Exception as e:                   # noqa: BLE001
+            self.log(f"Không đổi được ngôn ngữ: {e!r}", "err")
 
     # ---- nhật ký dùng chung cho cả 3 tab ------------------------------------
     def _build_shared_log(self):
@@ -873,17 +929,24 @@ class App:
         self.det_dm.insert(0, "26.7641")
         self.det_dm.grid(row=1, column=1, padx=4, sticky="w")
 
-        ttk.Label(f, text=L.t("IQ → kênh:")).grid(row=1, column=2, sticky="w", padx=4)
+        ttk.Label(f, text=L.t("Chu kỳ P (s):"), style="CardMuted.TLabel").grid(
+            row=1, column=2, sticky="w", padx=(theme.sp(10), 4))
         self.det_p = ttk.Entry(f, width=12)
         self.det_p.insert(0, "")          # bỏ trống = dò chu kỳ mù (M3)
         self.det_p.grid(row=1, column=3, padx=4, sticky="w")
-        self.det_search = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f, text=L.t("dò chu kỳ mù (FFT) khi không có P"),
-                        variable=self.det_search).grid(row=1, column=4,
-                                                       columnspan=2, sticky="w")
-        self.det_iqn = ttk.Spinbox(f, from_=32, to=2048, increment=64, width=6)
+        # Số kênh IQ + checkbox xuống HÀNG RIÊNG: trước đây chúng chiếm cùng
+        # ô grid với nhãn nên chữ bị đè lên nhau.
+        row2 = ttk.Frame(f)
+        row2.grid(row=2, column=0, columnspan=6, sticky="we", padx=4,
+                  pady=(0, theme.sp(4)))
+        ttk.Label(row2, text=L.t("Số kênh IQ:"),
+                  style="CardMuted.TLabel").pack(side="left")
+        self.det_iqn = ttk.Spinbox(row2, from_=32, to=2048, increment=64, width=6)
         self.det_iqn.set(256)
-        self.det_iqn.grid(row=1, column=4, padx=4, sticky="w")
+        self.det_iqn.pack(side="left", padx=(4, theme.sp(12)))
+        self.det_search = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row2, text=L.t("dò chu kỳ mù (FFT) khi không có P"),
+                        variable=self.det_search).pack(side="left")
 
         # ---- ingest_guard: dữ liệu vào đã được nhận dạng thế nào
         self.guard_box = ttk.LabelFrame(
@@ -895,9 +958,10 @@ class App:
                   ("adc", "ADC"), ("sk", "Spectral kurtosis"),
                   ("rad", "Radiometer"), ("gap", "Gap / đồng hồ"), ("tags", "Nhãn"))
         for _r, (_k, _ttl) in enumerate(_grows):
-            ttk.Label(self.guard_box, text=_ttl + ":", width=17).grid(
+            ttk.Label(self.guard_box, text=_ttl + ":", width=17,
+                      style="CardMuted.TLabel").grid(
                 row=_r // 2, column=(_r % 2) * 2, sticky="w", padx=6, pady=2)
-            _lbl = ttk.Label(self.guard_box, text="—", foreground="#5f5f5f")
+            _lbl = ttk.Label(self.guard_box, text="—", style="Card.TLabel")
             _lbl.grid(row=_r // 2, column=(_r % 2) * 2 + 1, sticky="w", padx=6)
             self.guard_lbl[_k] = _lbl
 
@@ -905,8 +969,9 @@ class App:
         self.m3_box = ttk.LabelFrame(
             self.tab_det, text=L.t("M3 — dò chu kỳ mù (FFT + sàng hài)"))
         self.m3_box.pack(fill="x", padx=8, pady=(0, 8))
-        self.m3_lbl = ttk.Label(self.m3_box, text=L.t("chưa chạy — bấm Chạy phát hiện"),
-                                foreground="#5f5f5f")
+        self.m3_lbl = ttk.Label(self.m3_box,
+                                text=L.t("chưa chạy — bấm Chạy phát hiện"),
+                                style="CardMuted.TLabel")
         self.m3_lbl.pack(side="left", padx=8, pady=4)
         ttk.Button(self.m3_box, text=L.t("Mở hình fig3"),
                    command=lambda: self.open_result_file("fig3_period.png")).pack(
@@ -1562,7 +1627,7 @@ class App:
         else:
             txt = L.t("không có ứng viên vượt ngưỡng") + " ({} xét, {}σ)".format(
                 n, ps.get("threshold", 8))
-        self.m3_lbl.configure(text=txt, foreground="#1a7f37" if b else "#b36b00")
+        self.m3_lbl.configure(text=txt, style="Ok.TLabel" if b else "Warn.TLabel")
 
     def _after_detect(self):
         try:

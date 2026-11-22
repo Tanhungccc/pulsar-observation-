@@ -280,6 +280,12 @@ def apply_styles(root: tk.Misc) -> dict:
     st.configure("H2.TLabel", background=p["bg"], foreground=p["muted"], font=f["h2"])
     st.configure("CardH2.TLabel", background=p["surface"], foreground=p["muted"],
                  font=f["h2"])
+    st.configure("Ok.TLabel", background=p["surface"], foreground=p["ok"],
+                 font=f["body"])
+    st.configure("Warn.TLabel", background=p["surface"], foreground=p["warn"],
+                 font=f["body"])
+    st.configure("Err.TLabel", background=p["surface"], foreground=p["err"],
+                 font=f["body"])
     st.configure("Num.TLabel", background=p["surface"], foreground=p["ink"],
                  font=f["num"])
     st.configure("HeaderBrand.TLabel", background=p["header"],
@@ -417,6 +423,15 @@ def apply_styles(root: tk.Misc) -> dict:
     st.configure("TPanedwindow", background=p["bg"])
     st.configure("Sash", background=p["line"], borderwidth=0)
     st.configure("TSeparator", background=p["line"])
+    # nút trên thanh tiêu đề (nền đậm): viền mảnh, chữ sáng
+    st.configure("Header.TButton", background=p["header"],
+                 foreground=p["header_ink"], bordercolor="#27405E",
+                 lightcolor=p["header"], darkcolor=p["header"],
+                 font=f["btn"], padding=(sp(8), sp(3)), borderwidth=1)
+    st.map("Header.TButton",
+           background=[("active", "#16283F"), ("pressed", "#16283F")],
+           lightcolor=[("active", "#16283F")], darkcolor=[("active", "#16283F")],
+           foreground=[("active", "#FFFFFF")])
     # con trỏ bàn tay trên nút (Tk mặc định để mũi tên → cảm giác “khô”)
     try:
         root.option_add("*TButton.cursor", "hand2")
