@@ -316,6 +316,66 @@ class TargetDialog(tk.Toplevel):
         self.destroy()
 
 
+class SegmentedChoice(ttk.Frame):
+    """Bộ chọn 3 trạng thái dạng NÚT PHÂN ĐOẠN (không phải dropdown).
+
+    Vì sao: 'Chưa xác định' là trạng thái THẬT (chưa dò thiết bị), nếu để trong
+    dropdown thì người vận hành dễ chọn nhầm và tưởng đã kết nối. Ba nút nằm
+    cạnh nhau, mỗi nút có ký hiệu ● (đang chọn) / ○ (chưa chọn) nên đọc được cả
+    khi không phân biệt màu.
+
+    Giữ nguyên API của ttk.Combobox mà app và bộ test đang dùng:
+      .set(v) · .get() · .cget("values")
+    """
+
+    def __init__(self, master, values, on_change=None, marker=("●", "○")):
+        super().__init__(master)
+        self._values = list(values)
+        self._on_change = on_change
+        self._marker = marker
+        self._var = tk.StringVar(value=self._values[0] if self._values else "")
+        self._btns = []
+        for i, v in enumerate(self._values):
+            b = ttk.Button(self, style="Ghost.TButton", text=v,
+                           command=lambda k=i: self._choose(k))
+            b.pack(side="left", padx=(0, theme.sp(4)))
+            self._btns.append(b)
+        self._render()
+
+    def _render(self) -> None:
+        cur = self._var.get()
+        for v, b in zip(self._values, self._btns):
+            on = (v == cur)
+            b.configure(text=(self._marker[0] + " " if on
+                              else self._marker[1] + " ") + v,
+                        style="Primary.TButton" if on else "Ghost.TButton")
+
+    def _choose(self, idx: int) -> None:
+        self.set(self._values[idx], notify=True)
+
+    # ---- API tương thích Combobox
+    def set(self, value, notify: bool = True):
+        if value not in self._values:
+            return
+        self._var.set(value)
+        self._render()
+        if notify and self._on_change is not None:
+            self._on_change(value)
+
+    def get(self) -> str:
+        return self._var.get()
+
+    def cget(self, key):
+        if key in ("values", "-values"):
+            return tuple(self._values)
+        return super().cget(key)
+
+    def configure(self, **kw):
+        if "values" in kw:
+            self._values = list(kw.pop("values"))
+        return super().configure(**kw)
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -791,12 +851,12 @@ class App:
         ttk.Label(pf, text=L.t("NGUỒN DỮ LIỆU"), style="CardH2.TLabel").grid(
             row=7, column=0, columnspan=3, sticky="w",
             pady=(theme.sp(10), theme.sp(4)))
-        self.rec_source = ttk.Combobox(pf, values=list(SOURCE_MODES.values()),
-                                       state="readonly", width=40)
+        self.rec_source = SegmentedChoice(
+            pf, values=list(SOURCE_MODES.values()),
+            on_change=lambda _v: (self.refresh_hw_status()
+                                  if hasattr(self, "rec_hw_label") else None))
         self.rec_source.set(SOURCE_MODES["auto"])
-        self.rec_source.grid(row=8, column=0, columnspan=2, sticky="we")
-        self.rec_source.bind("<<ComboboxSelected>>",
-                             lambda _e: self.refresh_hw_status())
+        self.rec_source.grid(row=8, column=0, columnspan=2, sticky="w")
         ttk.Button(pf, text=L.t("Dò lại"), style="Ghost.TButton",
                    command=self.refresh_hw_status).grid(row=8, column=2,
                                                         padx=(theme.sp(4), 0))
@@ -1617,10 +1677,28 @@ class App:
         want_search = bool(getattr(self, "det_search", None)
                            and self.det_search.get())
 
+        # khoá nút + đổi nhãn để chống bấm đúp gây 2 luồng cùng ghi kết quả;
+        # luôn phục hồi trong finally kể cả khi luồng tính toán ném lỗi.
+        _btn_txt = self.btn_det.cget("text")
+        try:
+            self.btn_det.configure(state="disabled",
+                                   text=L.t("Đang chạy…"))
+        except tk.TclError:
+            pass
+
+        def _restore():
+            try:
+                self.btn_det.configure(state="normal", text=_btn_txt)
+            except tk.TclError:
+                pass
+
         def job():
-            self._last_metrics = psr_detect.detect(
-                path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq,
-                search_period=want_search)
+            try:
+                self._last_metrics = psr_detect.detect(
+                    path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq,
+                    search_period=want_search)
+            finally:
+                self.post(_restore)      # chạy ở MAIN thread
         self.run_bg(job, on_done=self._after_detect)
 
     def _fill_guard(self, m: dict) -> None:
