@@ -354,6 +354,10 @@ def audit_detect():
     chk("safe_stem: bỏ ký tự Windows cấm",
         all(c not in D.safe_stem('a<>:"/b|c?*d') for c in '<>:"/|?*'))
     real = os.path.join("..", "data", "B0329+54.fil")
+    # ghi kết quả vào thư mục TẠM (audit không được làm bẩn results/).
+    # PHẢI gán D.RESULTS: psr_detect chốt RESULTS lúc import nên env vô hiệu.
+    _tmp_res = tempfile.mkdtemp(prefix="audit_res_")
+    D.RESULTS = _tmp_res
     if os.path.exists(real):
         m, _ = quiet(D.detect, real, dm_ref=26.7641, out_name="audit_b0329")
         chk("B0329+54: status ok", m.get("status") == "ok", str(m.get("status")))
@@ -376,6 +380,7 @@ def audit_detect():
         except PermissionError:
             raised = True
         chk("chặn ghi kết quả vào data/", raised)
+    shutil.rmtree(_tmp_res, ignore_errors=True)
     # đầu vào xấu
     tmp = tempfile.mkdtemp(prefix="det_")
     for name, data in (("empty.dat", b""), ("text.txt", b"abc def" * 100)):
