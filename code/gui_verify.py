@@ -280,7 +280,10 @@ def main(fast=False):
         app.det_file.delete(0, "end"); app.det_file.insert(0, _simf)
         app.det_dm.delete(0, "end"); app.det_dm.insert(0, "3.0")
         app.det_p.delete(0, "end")
-        app.run_detect(); pump(root, app, 400)
+        pump(root, app, 60)          # đợi tác vụ trước xong hẳn
+        # M3 dò mù trên file 600 MB mất >100 s; để 900 s cho chắc (trước để
+        # 400 s nên khi máy bận thì hết giờ → 2 phép kiểm fail ngẫu nhiên)
+        app.run_detect(); pump(root, app, 900)
         _t = app.m3_lbl.cget("text")
         chk("M3 trong GUI tìm đúng P của tín hiệu mô phỏng (253 ms)",
             "253" in _t, _t)

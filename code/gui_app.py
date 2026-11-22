@@ -328,15 +328,19 @@ class SegmentedChoice(ttk.Frame):
       .set(v) · .get() · .cget("values")
     """
 
-    def __init__(self, master, values, on_change=None, marker=("●", "○")):
+    def __init__(self, master, values, on_change=None, marker=("●", "○"),
+                 labels=None):
         super().__init__(master)
         self._values = list(values)
+        # nhãn NGẮN hiển thị trên nút; giá trị dài vẫn là thứ .get() trả về
+        self._labels = list(labels) if labels else list(self._values)
         self._on_change = on_change
         self._marker = marker
         self._var = tk.StringVar(value=self._values[0] if self._values else "")
         self._btns = []
         for i, v in enumerate(self._values):
-            b = ttk.Button(self, style="Ghost.TButton", text=v,
+            b = ttk.Button(self, style="Ghost.TButton",
+                           text=self._labels[i] if i < len(self._labels) else v,
                            command=lambda k=i: self._choose(k))
             b.pack(side="left", padx=(0, theme.sp(4)))
             self._btns.append(b)
@@ -344,10 +348,11 @@ class SegmentedChoice(ttk.Frame):
 
     def _render(self) -> None:
         cur = self._var.get()
-        for v, b in zip(self._values, self._btns):
+        for i, (v, b) in enumerate(zip(self._values, self._btns)):
             on = (v == cur)
+            lab = self._labels[i] if i < len(self._labels) else v
             b.configure(text=(self._marker[0] + " " if on
-                              else self._marker[1] + " ") + v,
+                              else self._marker[1] + " ") + lab,
                         style="Primary.TButton" if on else "Ghost.TButton")
 
     def _choose(self, idx: int) -> None:
@@ -691,13 +696,18 @@ class App:
         wrap.pack(fill="both", expand=True, padx=theme.sp(6), pady=theme.sp(6))
         cols = ("tgt", "tr", "alt", "snr", "need", "dmmax")
         self.plan_tree = ttk.Treeview(wrap, columns=cols, show="headings",
-                                      height=8, selectmode="browse")
-        heads = ("Mục tiêu", "Transit", "Alt max", "SNR/giờ", "→ SNR 8", "dm_max quét")
-        widths = tuple(theme.sp(v) for v in (150, 70, 70, 80, 90, 100))
+                                      height=7, selectmode="browse")
+        heads = ("Mục tiêu", "Transit", "Alt", "SNR/giờ", "→ SNR 8", "DM max")
+        # width = bề rộng KHỞI ĐIỂM, minwidth = sàn; stretch=True để Treeview tự
+        # chia phần dư. Trước đây cộng dồn bề rộng cố định nên ở 130 % bề rộng
+        # vượt khung → cột cuối (dm_max) bị cắt mất.
+        widths = tuple(theme.sp(v) for v in (108, 58, 60, 66, 70, 76))
+        mins = tuple(theme.sp(v) for v in (86, 52, 54, 58, 62, 66))
         anchors = ("w", "center", "center", "e", "e", "e")
-        for c, ttl, w, anc in zip(cols, heads, widths, anchors):
+        for c, ttl, w, mn, anc in zip(cols, heads, widths, mins, anchors):
             self.plan_tree.heading(c, text=ttl)
-            self.plan_tree.column(c, width=w, anchor=anc, stretch=True)
+            self.plan_tree.column(c, width=w, minwidth=mn, anchor=anc,
+                                  stretch=True)
         sb = ttk.Scrollbar(wrap, orient="vertical", command=self.plan_tree.yview)
         self.plan_tree.configure(yscrollcommand=sb.set)
         self.plan_tree.pack(side="left", fill="both", expand=True)
@@ -783,8 +793,35 @@ class App:
 
         right = ttk.LabelFrame(body, text=L.t("Cấu hình & ghi"))
         right.grid(row=0, column=1, sticky="nsew", padx=(theme.sp(8), 0))
-        pf = ttk.Frame(right)
-        pf.pack(fill="both", expand=True, padx=theme.sp(8), pady=theme.sp(6))
+
+        # Footer pack TRƯỚC canvas: pack cấp bề ngang theo thứ tự, nếu pack sau
+        # thì chỉ còn phần hẹp bên phải (cụm nút bị bóp lại).
+        _footer = ttk.Frame(right, style="Card.TFrame")
+        _footer.pack(side="bottom", fill="x", padx=theme.sp(8), pady=theme.sp(6))
+
+        # Vùng cuộn dọc: ở 1366×710 @130 % nội dung cột phải cao hơn khung,
+        # nếu không cuộn thì cụm nút và dòng dung lượng bị cắt mất.
+        _cv = tk.Canvas(right, highlightthickness=0, bd=0,
+                        background=self.pal["surface"])
+        _vsb = ttk.Scrollbar(right, orient="vertical", command=_cv.yview)
+        _cv.configure(yscrollcommand=_vsb.set)
+        _cv.pack(side="left", fill="both", expand=True)
+        _vsb.pack(side="right", fill="y")
+        pf = ttk.Frame(_cv)
+        _win = _cv.create_window((0, 0), window=pf, anchor="nw")
+        pf.bind("<Configure>",
+                lambda _e: _cv.configure(scrollregion=_cv.bbox("all")))
+        _cv.bind("<Configure>",
+                 lambda e: _cv.itemconfigure(_win, width=e.width))
+        # lăn chuột khi trỏ vào vùng cấu hình
+        def _wheel(ev):
+            try:
+                _cv.yview_scroll(-1 if ev.delta > 0 else 1, "units")
+            except tk.TclError:
+                pass
+            return "break"
+        _cv.bind("<Enter>", lambda _e: _cv.bind_all("<MouseWheel>", _wheel))
+        _cv.bind("<Leave>", lambda _e: _cv.unbind_all("<MouseWheel>"))
         pf.columnconfigure(1, weight=1)
 
         # ------------------------------------------------ nhóm CƠ BẢN
@@ -800,30 +837,29 @@ class App:
                    command=self.manage_targets).grid(
             row=1, column=2, padx=(theme.sp(4), 0))
 
-        ttk.Label(pf, text=L.t("DM tham chiếu"), style="CardMuted.TLabel").grid(
-            row=2, column=0, sticky="w")
-        ttk.Label(pf, text=L.t("Băng (MHz)"), style="CardMuted.TLabel").grid(
-            row=2, column=1, sticky="w", padx=(theme.sp(8), 0))
-        self.rec_dm = ttk.Entry(pf, width=10)
-        self.rec_dm.grid(row=3, column=0, sticky="we", pady=(0, theme.sp(6)))
-        self.rec_band = ttk.Combobox(pf, values=["423", "1420"], width=6,
+        # DM · Băng · Thời lượng trên CÙNG một hàng (tiết kiệm chiều dọc —
+        # ở 1366×710 @130 % nếu tách 3 hàng thì cụm nút bị đẩy ra ngoài khung)
+        _f3 = ttk.Frame(pf)
+        _f3.grid(row=2, column=0, columnspan=3, sticky="we", pady=(0, theme.sp(4)))
+        for _i, (_lab, _w) in enumerate(((L.t("DM tham chiếu"), 9),
+                                        (L.t("Băng (MHz)"), 6),
+                                        (L.t("Thời lượng (giờ)"), 7))):
+            ttk.Label(_f3, text=_lab, style="CardMuted.TLabel").grid(
+                row=0, column=_i, sticky="w", padx=(0, theme.sp(8)))
+        self.rec_dm = ttk.Entry(_f3, width=9)
+        self.rec_dm.grid(row=1, column=0, sticky="w", padx=(0, theme.sp(8)))
+        self.rec_band = ttk.Combobox(_f3, values=["423", "1420"], width=6,
                                      state="readonly")
         self.rec_band.set("423")
-        self.rec_band.grid(row=3, column=1, sticky="w", padx=(theme.sp(8), 0),
-                           pady=(0, theme.sp(6)))
-
-        ttk.Label(pf, text=L.t("Thời lượng (giờ)"),
-                  style="CardMuted.TLabel").grid(row=4, column=0, sticky="w",
-                                                 pady=(theme.sp(8), 0))
-        self.rec_hours = ttk.Spinbox(pf, from_=0.5, to=8.0, increment=0.5, width=8)
+        self.rec_band.grid(row=1, column=1, sticky="w", padx=(0, theme.sp(8)))
+        self.rec_hours = ttk.Spinbox(_f3, from_=0.5, to=8.0, increment=0.5, width=7)
         self.rec_hours.set(4.5)
-        self.rec_hours.grid(row=5, column=0, sticky="w", pady=(0, theme.sp(6)))
+        self.rec_hours.grid(row=1, column=2, sticky="w")
 
         # ------------------------------------------------ nhóm NÂNG CAO (thu gọn)
         self.adv_open = False
         adv_bar = ttk.Frame(pf)
-        adv_bar.grid(row=6, column=0, columnspan=3, sticky="we",
-                     pady=(theme.sp(4), 0))
+        adv_bar.grid(row=3, column=0, columnspan=3, sticky="we")
         self.btn_adv = ttk.Button(adv_bar, text=L.t("▸ Nâng cao"),
                                   style="Ghost.TButton", command=self.toggle_advanced)
         self.btn_adv.pack(side="left")
@@ -839,60 +875,66 @@ class App:
         self.rec_nchan.set(64)
         self.rec_nchan.grid(row=0, column=1, sticky="w", padx=(theme.sp(6), 0))
         ttk.Label(self.adv_frame, text=L.t("tsamp (µs)"),
-                  style="CardMuted.TLabel").grid(row=1, column=0, sticky="w",
-                                                 pady=(theme.sp(4), 0))
+                  style="CardMuted.TLabel").grid(row=0, column=2, sticky="w",
+                                                 padx=(theme.sp(10), 0))
         self.rec_tsamp = ttk.Spinbox(self.adv_frame, from_=64, to=2000,
                                      increment=64, width=8)
         self.rec_tsamp.set(256)
-        self.rec_tsamp.grid(row=1, column=1, sticky="w", padx=(theme.sp(6), 0),
-                            pady=(theme.sp(4), 0))
+        self.rec_tsamp.grid(row=0, column=3, sticky="w", padx=(theme.sp(6), 0))
 
         # ---------------------------- NGUỒN DỮ LIỆU: 3 trạng thái, có biểu tượng
-        ttk.Label(pf, text=L.t("NGUỒN DỮ LIỆU"), style="CardH2.TLabel").grid(
-            row=7, column=0, columnspan=3, sticky="w",
-            pady=(theme.sp(10), theme.sp(4)))
+        _nf = ttk.Frame(pf)
+        _nf.grid(row=4, column=0, columnspan=3, sticky="we",
+                 pady=(theme.sp(6), theme.sp(2)))
+        ttk.Label(_nf, text=L.t("NGUỒN DỮ LIỆU"), style="CardH2.TLabel").pack(
+            side="left")
+        ttk.Button(_nf, text=L.t("Dò lại"), style="Ghost.TButton",
+                   command=self.refresh_hw_status).pack(side="right")
+        _sf = ttk.Frame(pf)
+        _sf.grid(row=5, column=0, columnspan=3, sticky="w",
+                 pady=(theme.sp(2), theme.sp(2)))
         self.rec_source = SegmentedChoice(
-            pf, values=list(SOURCE_MODES.values()),
+            _sf, values=list(SOURCE_MODES.values()),
+            labels=(L.t("Tự động"), L.t("Mô phỏng"), L.t("SDR thật")),
             on_change=lambda _v: (self.refresh_hw_status()
                                   if hasattr(self, "rec_hw_label") else None))
         self.rec_source.set(SOURCE_MODES["auto"])
-        self.rec_source.grid(row=8, column=0, columnspan=2, sticky="w")
-        ttk.Button(pf, text=L.t("Dò lại"), style="Ghost.TButton",
-                   command=self.refresh_hw_status).grid(row=8, column=2,
-                                                        padx=(theme.sp(4), 0))
+        self.rec_source.pack(side="left")
         self.rec_hw_label = ttk.Label(pf, text=L.t("… đang dò thiết bị"),
                                       style="CardMuted.TLabel",
-                                      wraplength=theme.sp(380), justify="left")
-        self.rec_hw_label.grid(row=9, column=0, columnspan=3, sticky="w",
-                               pady=(theme.sp(4), theme.sp(8)))
+                                      wraplength=theme.sp(420), justify="left")
+        self.rec_hw_label.grid(row=6, column=0, columnspan=3, sticky="w",
+                               pady=(0, theme.sp(4)))
 
         # ---------------------------------- cụm nút: MỘT nút chính + Dừng riêng
-        ttk.Separator(pf, orient="horizontal").grid(
-            row=10, column=0, columnspan=3, sticky="we", pady=(0, theme.sp(8)))
-        act = ttk.Frame(pf)
-        act.grid(row=11, column=0, columnspan=3, sticky="we")
+        # ---- FOOTER dính đáy: cụm nút luôn nhìn thấy, không phải cuộn
+        ttk.Separator(_footer, orient="horizontal").pack(fill="x",
+                                                         pady=(0, theme.sp(6)))
+        act = ttk.Frame(_footer)
+        act.pack(fill="x")
         self.btn_rec = ttk.Button(act, text=L.t("▶ Bắt đầu ghi"),
                                   style="Primary.TButton", command=self.start_recording)
         self.btn_rec.pack(side="left")
         self.btn_stop = ttk.Button(act, text=L.t("■ Dừng"), style="Stop.TButton",
                                    command=self.stop_recording, state="disabled")
         self.btn_stop.pack(side="left", padx=(theme.sp(6), 0))
-        ttk.Button(act, text=L.t("Mở thư mục"), style="Ghost.TButton",
-                   command=lambda: self.open_dir(DATA_DIR)).pack(side="right")
 
-        act2 = ttk.Frame(pf)
-        act2.grid(row=12, column=0, columnspan=3, sticky="we", pady=(theme.sp(6), 0))
+
+        act2 = ttk.Frame(_footer)
+        act2.pack(fill="x", pady=(theme.sp(4), 0))
         ttk.Button(act2, text=L.t("Phân tích file vừa ghi"), style="Next.TButton",
                    command=self.analyze_last_recorded).pack(
             side="left", fill="x", expand=True)
+        ttk.Button(act2, text=L.t("Mở thư mục"), style="Ghost.TButton",
+                   command=lambda: self.open_dir(DATA_DIR)).pack(
+            side="right", padx=(theme.sp(6), 0))
         # chỉ hiện khi đã có file vừa ghi (xem _after_recorded)
         self.btn_to_det = ttk.Button(act2, text=L.t("→ Sang Tab 2"),
                                      style="Ghost.TButton", command=self.goto_detect)
         self.btn_to_det.pack_forget()
 
-        self.rec_disk = ttk.Label(pf, text="", style="CardMuted.TLabel")
-        self.rec_disk.grid(row=13, column=0, columnspan=3, sticky="w",
-                           pady=(theme.sp(8), 0))
+        self.rec_disk = ttk.Label(_footer, text="", style="CardMuted.TLabel")
+        self.rec_disk.pack(anchor="w", pady=(theme.sp(4), 0))
 
         self.refresh_target_list(select="B0950+08")
         self.rec_source.set(SOURCE_MODES["auto"])
@@ -1656,6 +1698,10 @@ class App:
 
     def run_detect(self):
         self.set_detect_step(3)          # đang phân tích
+        try:                             # xoá kết quả M3 của lần chạy TRƯỚC
+            self.m3_lbl.configure(text=L.t("… đang chạy"), style="Muted.TLabel")
+        except (tk.TclError, AttributeError):
+            pass
         path = self.det_file.get().strip()
         if not path or not os.path.exists(path):
             messagebox.showerror("Lỗi", "Chưa chọn file .fil hợp lệ")
