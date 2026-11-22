@@ -879,9 +879,15 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                + (f" | tham chiếu: {dm_ref}" if dm_ref else ""))
     rep.append(f"Số xung phát hiện: {len(pulses)} | nhất quán DM: {len(pulses_ok)} | "
                f"loại RFI hẹp băng: {len(rejected)}")
+    rep.append("  (bề rộng boxcar = độ rộng cửa sổ lọc khớp theo lưới; "
+               "W50/W25 = đo trực tiếp trên hồ sơ xung → KHÔNG phụ thuộc lưới)")
     for i, p in enumerate(pulses_ok):
+        _w50, _w25 = p.get("w50_ms"), p.get("w25_ms")
         rep.append(f"  xung {i+1}: t = {p['t_s']*1e3:.1f} ms, SNR = {p['snr']:.1f}, "
-                   f"bề rộng = {p['width_ms']:.1f} ms, "
+                   f"bề rộng boxcar = {p['width_ms']:.1f} ms "
+                   f"({p['width_samples']} mẫu), "
+                   f"W50 = {_w50 if _w50 else float('nan'):.1f} ms, "
+                   f"W25 = {_w25 if _w25 else float('nan'):.1f} ms, "
                    f"DM dải con = {p.get('dm_sub')}")
     rep.append("Kiểm chứng đầu ra:")
     for c in checks:

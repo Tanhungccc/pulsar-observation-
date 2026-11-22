@@ -253,6 +253,53 @@ def validate_dyn(dyn: np.ndarray, h: dict) -> dict:
 
 
 # ------------------------------------------------------------------ ghi
+SUPPORTED_NBITS = (4, 8, 16, 32)
+
+
+def robust_scale(dyn, nbits: int):
+    """Thang lượng tử hoá BỀN VỮNG: trung vị dải p0,1–99,9 của TỪNG KÊNH.
+
+    Vì sao không dùng percentile của CẢ MẢNG: một kênh RFI mạnh (50×) chiếm
+    ~1,5 % số mẫu, nhiều hơn 0,1 % → percentile toàn mảng bị kéo vào miền
+    giá trị của kênh nóng, dải trải rộng ~50 lần, xung pulsar chỉ còn 1–2
+    mức lượng tử (đo được: SNR tụt 47 % khi chỉ một kênh bị RFI).
+    Lấy TRUNG VỊ giữa các kênh → kênh nóng bị bão hoà (vốn đã vô dụng),
+    63 kênh còn lại giữ đủ 16 mức.
+    """
+    d = np.asarray(dyn, dtype=np.float64)
+    if nbits >= 16:                       # đủ dải động: giữ nguyên
+        return float(np.min(d)), float(np.max(d))
+    q = np.percentile(d, [0.1, 99.9], axis=1)
+    lo, hi = float(np.median(q[0])), float(np.median(q[1]))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(np.min(d)), float(np.max(d))
+    return lo, hi
+
+
+def pack_bits(dyn, nbits: int, lo: float | None = None):
+    """Đóng gói mẫu SIGPROC **theo thời gian** (mỗi mốc = dãy kênh liền).
+
+    (packer cũ ghi theo kênh → đọc lại bị đảo trục, DM rơi về 0 = RFI.)
+    Hỗ trợ 4 / 8 / 16 bit; 4-bit đóng 2 mẫu/byte, nibble cao trước.
+    """
+    d = np.asarray(dyn, dtype=np.float64).T
+    if lo is None:
+        lo = robust_scale(dyn, nbits)[0]
+    hi = robust_scale(dyn, nbits)[1]
+    span = max(hi - lo, 1e-9)
+    if nbits == 4:
+        q = np.clip(((d - lo) / span * 15.0).round(), 0, 15).astype(np.uint8).ravel()
+        if q.size % 2:
+            q = np.append(q, np.uint8(0))
+        return ((q[0::2] << 4) | q[1::2]).tobytes()
+    if nbits == 16:
+        return np.clip((d - lo) / span * 65535.0, 0, 65535).astype("<u2").ravel().tobytes()
+    if nbits == 8:
+        return np.clip((d - lo) / span * 255.0, 0, 255).astype(np.uint8).ravel().tobytes()
+    raise ValueError(f"pack_bits: chưa hỗ trợ nbits={nbits} "
+                     f"(hỗ trợ {SUPPORTED_NBITS})")
+
+
 def write_fil(path: str, dyn: np.ndarray, hdr: dict):
     """Ghi .fil từ dyn (nchan, ntime).
 
@@ -263,6 +310,10 @@ def write_fil(path: str, dyn: np.ndarray, hdr: dict):
     dyn = np.asarray(dyn)
     nchans, ntime = dyn.shape
     nbits = int(hdr.get("nbits", 8))
+    if nbits not in SUPPORTED_NBITS:
+        raise ValueError(f"write_fil: nbits={nbits} không hỗ trợ "
+                         f"(hỗ trợ {SUPPORTED_NBITS}) — trước đây ghi ngầm "
+                         f"dữ liệu 8-bit kèm header 4-bit, tức tệp TỰ KHAI SAI")
     with open(path, "wb") as fh:
         def s(text):
             b = text.encode("ascii")
@@ -279,6 +330,9 @@ def write_fil(path: str, dyn: np.ndarray, hdr: dict):
         s("HEADER_END")
         if nbits == 32:
             fh.write(dyn.T.astype(np.float32).tobytes())
-        else:
+        elif nbits == 8:
+            # 8-bit giữ đường cũ (mẫu ADC 0–255) để không đổi dữ liệu đã có
             fh.write(np.clip(dyn.T, 0, 255).astype(np.uint8).tobytes())
+        else:
+            fh.write(pack_bits(dyn, nbits))
     return path

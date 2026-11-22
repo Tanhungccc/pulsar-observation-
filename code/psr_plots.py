@@ -534,8 +534,10 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
                 mec="k", zorder=7, label="_nolegend_")
         ax.set_ylim(ymin - 0.10 * span, max(ymax + 0.22 * span, y_ap + 2.2 * stem))
     leg = place_legend(ax)
-    if "width_ms" in metrics and metrics["width_ms"] is not None:
-        ax.set_title(title + f" — W50 đo = {metrics['width_ms']:.1f} ms")
+    if metrics.get("w50_ms"):
+        ax.set_title(title + f" — W50 (hồ sơ) = {metrics['w50_ms']:.1f} ms")
+    elif metrics.get("width_ms"):
+        ax.set_title(title + f" — bộ lọc boxcar {metrics['width_ms']:.1f} ms")
     else:
         ax.set_title(title)
     ax.set_xlabel("thời gian (ms)")

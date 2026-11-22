@@ -109,6 +109,8 @@ def dedisperse(dyn, freqs_mhz, dm: float, tsamp_s: float,
     """
     dyn = np.asarray(dyn, dtype=np.float64)
     freqs = np.asarray(freqs_mhz, dtype=float)
+    if not np.isfinite(tsamp_s) or tsamp_s <= 0:
+        raise ValueError(f"tsamp_s phải > 0 (nhận {tsamp_s})")
     if f_ref_mhz is None:
         f_ref_mhz = float(freqs.max())          # tham chiếu: kênh tần số cao
     delays = dm_delay_s(dm, freqs, f_ref_mhz)   # >= 0
@@ -211,6 +213,10 @@ def fold(series, tsamp_s: float, period_s: float, nbins: int = 256,
     Trả về (profile, counts) — profile là giá trị trung bình mỗi bin.
     """
     x = np.asarray(series, dtype=np.float64)
+    if not np.isfinite(tsamp_s) or tsamp_s <= 0:
+        raise ValueError(f"tsamp_s phải > 0 (nhận {tsamp_s})")
+    if not np.isfinite(period_s) or period_s <= 0:
+        raise ValueError(f"period_s phải > 0 (nhận {period_s})")
     n = len(x)
     t = np.arange(n, dtype=np.float64) * tsamp_s
     dt = t - float(t0_s)
@@ -460,13 +466,77 @@ def subband_dm_single(dyn, freqs_mhz, tsamp_s: float, t_peak_s: float,
             "used": used}
 
 
+# Lưới độ rộng lọc boxcar (mẫu). Có 48 và 96 để KHÔNG bị ép nhảy gấp đôi
+# 32→64 khi bề rộng thật nằm giữa (đã gặp: xung 3 của B0329+54 bị báo 16,4 ms
+# trong khi bề rộng thật tại 25 % đỉnh chỉ 16,6 ms ≈ xung 1).
+PULSE_WIDTHS = (1, 2, 4, 8, 16, 32, 48, 64, 96)
+
+
+def measure_widths(profile, tsamp_s: float, i_peak: int | None = None,
+                   levels=(0.5, 0.25)) -> dict:
+    """Đo bề rộng HỒ SƠ tại các mức biên độ (mặc định 50 % → W50, 25 % → W25).
+
+    KHÁC HẲN `width_samples` của lọc boxcar: đây là bề rộng hình học đo trực
+    tiếp trên hình dạng xung, nên KHÔNG phụ thuộc lưới độ rộng dùng để tìm
+    xung. Nhờ vậy báo cáo không còn ép bề rộng nhảy 8,2 → 16,4 ms.
+
+    Trả về dict {"w50_ms", "w25_ms", "baseline", "peak", "n_edges"}.
+    Giá trị None nếu xung chạm biên cửa sổ (không đủ dữ liệu) — KHÔNG bịa số.
+    """
+    y = np.asarray(profile, dtype=np.float64)
+    out = {"w50_ms": None, "w25_ms": None, "baseline": None,
+           "peak": None, "n_edges": 0}
+    n = y.size
+    if n < 5 or not np.all(np.isfinite(y)):
+        return out
+    # nền: lấy hai đầu cửa sổ (xung nằm giữa), tránh bị đuôi xung kéo lên
+    k = max(2, n // 10)
+    base = float(np.median(np.r_[y[:k], y[-k:]]))
+    d = y - base
+    peak = float(np.max(d))
+    out["baseline"], out["peak"] = base, peak
+    if peak <= 0:
+        return out
+    ip = int(np.argmax(d)) if i_peak is None else int(i_peak)
+    ip = min(max(ip, 1), n - 2)
+    # làm trơn 3 mẫu để nhiễu không cắt sớm đường mức
+    sm = np.convolve(d, np.ones(3) / 3.0, mode="same")
+    for lvl in levels:
+        thr = lvl * peak
+        # biên TRÁI: đi sang trái tới mẫu đầu tiên DƯỚI mức, rồi nội suy
+        i = ip - 1
+        while i > 0 and sm[i] >= thr:
+            i -= 1
+        if sm[i] >= thr:                        # chạm biên trái → không đo
+            continue
+        left = float(i) + (thr - sm[i]) / max(sm[i + 1] - sm[i], 1e-12)
+        # biên PHẢI
+        j = ip + 1
+        while j < n - 1 and sm[j] >= thr:
+            j += 1
+        if sm[j] >= thr:                        # chạm biên phải → không đo
+            continue
+        right = float(j) - (thr - sm[j]) / max(sm[j - 1] - sm[j], 1e-12)
+        w_ms = (right - left) * tsamp_s * 1e3
+        if not np.isfinite(w_ms) or w_ms <= 0:
+            continue
+        out["n_edges"] += 1
+        if abs(lvl - 0.5) < 1e-9:
+            out["w50_ms"] = round(float(w_ms), 3)
+        elif abs(lvl - 0.25) < 1e-9:
+            out["w25_ms"] = round(float(w_ms), 3)
+    return out
+
+
 def find_pulses(series, tsamp_s: float, threshold: float = 8.0,
-                widths=(1, 2, 4, 8, 16, 32, 64), min_sep_s: float | None = None):
+                widths=PULSE_WIDTHS, min_sep_s: float | None = None):
     """A7+ — tìm NHIỀU xung đơn trên chuỗi đã khử tán sắc, có gom cụm.
 
     Lọc khớp boxcar đa độ rộng → ứng viên (thời điểm, độ rộng, SNR);
     gom ứng viên cách nhau < min_sep_s (mặc định = 3× bề rộng lớn nhất).
-    Trả về list dict {t_s, width_samples, width_ms, snr} xếp theo SNR.
+    Trả về list dict {t_s, width_samples, width_ms, w50_ms, w25_ms, snr}
+    xếp theo SNR. `width_ms` là độ rộng CỬA SỔ lọc boxcar (theo lưới),
+    còn `w50_ms`/`w25_ms` là bề rộng ĐO TRÊN HỒ SƠ tại 50 %/25 % đỉnh.
     """
     x = np.asarray(series, dtype=np.float64)
     med = np.median(x)
@@ -504,6 +574,15 @@ def find_pulses(series, tsamp_s: float, threshold: float = 8.0,
         i_ap = lo + int(np.argmax(seg)) if seg.size else i0
         cd["t_boxcar_s"] = cd["t_s"]
         cd["t_s"] = float(i_ap * tsamp_s)
+
+        # bề rộng HỒ SƠ tại 50 % / 25 % đỉnh (tách bạch với width_samples)
+        hw = int(max(3 * w, 24))
+        lo2, hi2 = max(0, i_ap - hw), min(len(d), i_ap + hw + 1)
+        mw = measure_widths(d[lo2:hi2], tsamp_s, i_peak=i_ap - lo2)
+        cd["w50_ms"] = mw["w50_ms"]
+        cd["w25_ms"] = mw["w25_ms"]
+        cd["peak_sigma"] = (round(float(d[i_ap] / rms), 2)
+                             if rms > 0 else None)
     return kept
 
 def mask_bursty_channels(dyn, max_ratio: float = 3.0, pct: float = 99.9):
