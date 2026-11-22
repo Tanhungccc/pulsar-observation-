@@ -120,7 +120,7 @@ def transit_weights(n: int, hpbw_deg: float, t_total_s: float,
     (t − t_transit) · 15.041°/h · cos δ.  Trọng số này thay cho việc
     "cộng đều cả đêm" (sai): mẫu ngoài chùm chỉ thêm nhiễu.
     """
-    t = (np.arange(n) - n / 2.0) / n * t_total_s          # giây, 0 = transit
+    t = (np.arange(n) - (n - 1) / 2.0) / n * t_total_s    # giây, 0 = transit
     theta = t * (15.041 / 3600.0) * cos_dec                # độ
     return np.exp(-4.0 * math.log(2.0) * (theta / hpbw_deg) ** 2)
 
