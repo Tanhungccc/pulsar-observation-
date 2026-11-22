@@ -243,7 +243,7 @@ def fonts(root=None) -> dict:
         num=(mono, z(14)),
         num_b=(mono, z(15), "bold"),
         tab=(ui, z(15)),
-        log=(mono, z(13)),
+        log=(mono, z(14)),
     )
 
 
@@ -339,9 +339,16 @@ def apply_styles(root: tk.Misc) -> dict:
            background=[("active", p["info_bg"]), ("pressed", p["info_bg"]),
                        ("disabled", p["bg"])],
            foreground=[("disabled", p["muted"])])
+    st.configure("NavSel.TButton", background=p["sel_bg"], foreground=p["primary"],
+                 bordercolor=p["primary"], lightcolor=p["sel_bg"],
+                 darkcolor=p["sel_bg"], font=(f["ui"], f["btn"][1], "bold"),
+                 padding=(sp(10), sp(5)), borderwidth=1, anchor="w")
+    st.map("NavSel.TButton", background=[("active", p["sel_bg"])],
+           lightcolor=[("active", p["sel_bg"])],
+           darkcolor=[("active", p["sel_bg"])])
     st.configure("Ghost.TButton", background=p["bg"], foreground=p["muted"],
                  bordercolor=p["line"], lightcolor=p["bg"], darkcolor=p["bg"],
-                 padding=(sp(8), sp(4)), borderwidth=1)
+                 padding=(sp(8), sp(4)), borderwidth=1, anchor="w")
     st.map("Ghost.TButton", background=[("active", p["line2"])],
            lightcolor=[("active", p["line2"])], darkcolor=[("active", p["line2"])],
            foreground=[("active", p["ink"])])
@@ -356,7 +363,10 @@ def apply_styles(root: tk.Misc) -> dict:
            foreground=[("selected", p["primary"]), ("active", p["ink"])],
            expand=[("selected", (0, 0, 0, 0))])
     # Notebook ẩn tab (dùng cho điều hướng dọc ở tab Cài đặt)
-    st.layout("Nav.TNotebook", [("Nav.TNotebook.client", {"sticky": "nswe"})])
+    st.layout("Nav.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
+    # Dải tab do phần tử "TNotebook.Tab" vẽ — phải xoá layout CỦA NÓ, nếu chỉ
+    # xoá ở layout Notebook thì tab vẫn hiện (đây là lý do bị "nhân bản" menu).
+    st.layout("Nav.TNotebook.Tab", [])
 
     # bảng
     st.configure("Treeview", background=p["surface"], fieldbackground=p["surface"],
