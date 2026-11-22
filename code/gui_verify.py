@@ -428,6 +428,36 @@ def main(fast=False):
                      for b in _all_buttons(app.tab_set))
     chk("nút 'Corpus dữ liệu XẤU' có trên tab Kiểm chứng (tab 3)", has_stress)
 
+    # ================================ D0e. NÚT SÁNG/TỐI (theme)
+    print(chr(10) + "=== D0e. Nút Sáng/Tối ===")
+    import json as _json
+
+    import psr_theme as _th
+
+    _orig_mode = _th.mode()
+    _orig_restart = app.restart_app
+    # chặn khởi động lại: trong test không được spawn tiến trình mới
+    app.restart_app = lambda *a, **k: None
+    try:
+        app._toggle_theme()
+        root.update()
+        _new = _th.mode()
+        chk("nút Sáng/Tối đổi được chế độ giao diện (theme.mode)",
+            _new != _orig_mode and _new in _th.MODES,
+            f"{_orig_mode} → {_new}")
+        _sp = gui_app.psr_paths.settings_path()
+        _saved = None
+        if os.path.exists(_sp):
+            try:
+                _saved = _json.load(open(_sp, encoding="utf-8")).get("theme")
+            except Exception:                # noqa: BLE001
+                _saved = None
+        chk("chế độ mới được GHI vào settings.json",
+            _saved == _new, f"theme={_saved!r} trong {os.path.basename(_sp)}")
+    finally:
+        _th.set_mode(_orig_mode)          # trả lại cấu hình ban đầu
+        app.restart_app = _orig_restart
+
     # =============================================== G2. IQ THÔ
     print("\n=== G2. DỮ LIỆU IQ THÔ (chưa channelize) ===")
     iq = os.path.join(gui_app.ROOT_DIR, "data", "iq", "crab-giantpulse.sigmf-data")
