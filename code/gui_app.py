@@ -258,12 +258,12 @@ class TargetDialog(tk.Toplevel):
         ttk.Button(bf, text=L.t("Lưu"), style="Primary.TButton",
                    command=self._save).pack(side="left", padx=theme.sp(4))
         if tgt and tgt.get("custom"):
-            ttk.Button(bf, text=L.t("Xoá mục tiêu"), style="Stop.TButton",
+            ttk.Button(bf, text=L.t(L.t("Xoá mục tiêu")), style="Stop.TButton",
                        command=self._delete).pack(side="left", padx=theme.sp(4))
         ttk.Button(bf, text=L.t("Đóng"), style="Ghost.TButton",
                    command=self.destroy).pack(side="right", padx=theme.sp(4))
         ttk.Label(f, style="CardMuted.TLabel", wraplength=560, justify="left", text=(
-            "· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ."
+            L.t("· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ.")
         )).grid(row=len(self.FIELDS) + 2, column=0, columnspan=3, sticky="w",
                 padx=4, pady=(8, 0))
         self.grab_set()
@@ -306,7 +306,7 @@ class TargetDialog(tk.Toplevel):
 
     def _delete(self) -> None:
         name = self.vars["name"].get().strip()
-        if not messagebox.askyesno("Xoá mục tiêu", f"Xoá '{name}' khỏi danh mục?"):
+        if not messagebox.askyesno(L.t("Xoá mục tiêu"), f"Xoá '{name}' khỏi danh mục?"):
             return
         ok = psr_targets.delete_target(name)
         self.app.log((f"Đã xoá mục tiêu '{name}'" if ok
@@ -413,7 +413,7 @@ class App:
         # 'invalid command name "..._poll_queue"' và có thể làm chết tiến trình
         # (đã gặp: gui_verify mất sạch output vì lỗi này lúc đóng cửa sổ).
         self.root.bind("<Destroy>", self._on_destroy, add="+")
-        self.log("Sẵn sàng. Chọn tab để bắt đầu.")
+        self.log(L.t("Sẵn sàng. Chọn tab để bắt đầu."))
         self.log(f"Thư mục dữ liệu: {DATA_DIR}")
         self.log(f"Thư mục kết quả: {RESULTS_DIR}")
 
@@ -1329,7 +1329,7 @@ class App:
     def run_bg(self, fn, *args, on_done=None, **kwargs):
         """Chạy hàm nặng trong thread; log tự động; khoá nút khi đang chạy."""
         if self.busy:
-            self.log("Đang có tác vụ chạy — đợi hoàn tất trước.", "err")
+            self.log(L.t("Đang có tác vụ chạy — đợi hoàn tất trước."), "err")
             return
         self.busy = True
         self._set_busy(True)
@@ -1350,7 +1350,7 @@ class App:
                 if err:
                     self.log(f"Tác vụ kết thúc với lỗi: {err!r}", "err")
                 else:
-                    self.log("✔ Tác vụ hoàn tất.", "ok")
+                    self.log(L.t("✔ Tác vụ hoàn tất."), "ok")
                 if on_done:
                     on_done()
             self.post(done)
@@ -1466,7 +1466,7 @@ class App:
         """
         name = (name or "").strip()
         if not name:
-            messagebox.showerror("Thiếu mục tiêu", "Hãy nhập tên mục tiêu.")
+            messagebox.showerror(L.t("Thiếu mục tiêu"), L.t("Hãy nhập tên mục tiêu."))
             return None
         tgt = psr_targets.find_target(name)
         if tgt:
@@ -1501,7 +1501,7 @@ class App:
             new_data = _p.set_data_dir(self.dir_vars["data_dir"].get())
             new_res = _p.set_results_dir(self.dir_vars["results_dir"].get())
         except Exception as exc:
-            messagebox.showerror("Không đổi được thư mục", str(exc))
+            messagebox.showerror(L.t("Không đổi được thư mục"), str(exc))
             self.log(f"Lỗi đổi thư mục: {exc}", "err")
             return
         # áp dụng ngay trong tiến trình này
@@ -1578,13 +1578,13 @@ class App:
             nchan = int(self.rec_nchan.get())
             tsamp = float(self.rec_tsamp.get())
         except ValueError:
-            messagebox.showerror("Lỗi", "Giờ/kênh/tsamp phải là số")
+            messagebox.showerror(L.t("Lỗi"), L.t("Giờ/kênh/tsamp phải là số"))
             return
         source = self._source_key()
         probe = self.refresh_hw_status()
         if source == "real" and not probe["found"]:
             messagebox.showerror(
-                "Không có SDR",
+                L.t("Không có SDR"),
                 "\n".join([
                     "Đang chọn 'Bắt buộc SDR THẬT' nhưng không tìm thấy thiết bị:",
                     str(probe.get("error") or "không rõ lý do"),
@@ -1628,7 +1628,7 @@ class App:
 
     def stop_recording(self):
         self.stop_event.set()
-        self.log("Yêu cầu DỪNG — chờ file đóng an toàn…")
+        self.log(L.t("Yêu cầu DỪNG — chờ file đóng an toàn…"))
 
     def analyze_last_recorded(self):
         # tìm file .fil mới nhất trong data/
@@ -1640,7 +1640,7 @@ class App:
                     if newest is None or os.path.getmtime(p) > os.path.getmtime(newest):
                         newest = p
         if newest is None:
-            self.log("Chưa có file .fil nào trong data/ — hãy ghi thử trước.", "err")
+            self.log(L.t("Chưa có file .fil nào trong data/ — hãy ghi thử trước."), "err")
             return
         self.last_file = newest
         self.goto_detect(newest)
@@ -1649,7 +1649,7 @@ class App:
         """Chuyển sang Tab 2 với ĐÚNG file vừa ghi VÀ DM tham chiếu của mục tiêu."""
         path = path or getattr(self, "last_file", None)
         if not path or not os.path.exists(path):
-            self.log("Chưa có file vừa ghi để phân tích.", "err")
+            self.log(L.t("Chưa có file vừa ghi để phân tích."), "err")
             return
         self.det_file.delete(0, "end")
         self.det_file.insert(0, path)
@@ -1704,13 +1704,13 @@ class App:
             pass
         path = self.det_file.get().strip()
         if not path or not os.path.exists(path):
-            messagebox.showerror("Lỗi", "Chưa chọn file .fil hợp lệ")
+            messagebox.showerror(L.t("Lỗi"), L.t("Chưa chọn file .fil hợp lệ"))
             return
         try:
             dm = float(self.det_dm.get()) if self.det_dm.get().strip() else None
             p = float(self.det_p.get()) if self.det_p.get().strip() else None
         except ValueError:
-            messagebox.showerror("Lỗi", "DM/P phải là số")
+            messagebox.showerror(L.t("Lỗi"), L.t("DM/P phải là số"))
             return
 
         try:
