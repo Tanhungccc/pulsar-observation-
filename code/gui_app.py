@@ -916,8 +916,12 @@ class App:
 
 
     def _build_detect_tab(self):
-        f = ttk.LabelFrame(self.tab_det, text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
-        f.pack(fill="x", padx=8, pady=8)
+        # ---- dải bước: Chọn dữ liệu → Kiểm tra → Cấu hình → Phân tích → Kết quả
+        self._build_detect_steps()
+
+        f = ttk.LabelFrame(self.tab_det,
+                           text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
+        f.pack(fill="x", padx=8, pady=(theme.sp(6), theme.sp(6)))
 
         ttk.Button(f, text=L.t("Chọn file .fil…"), command=self.pick_fil).grid(
             row=0, column=0, padx=4, pady=4)
@@ -948,20 +952,30 @@ class App:
         ttk.Checkbutton(row2, text=L.t("dò chu kỳ mù (FFT) khi không có P"),
                         variable=self.det_search).pack(side="left")
 
-        # ---- ingest_guard: dữ liệu vào đã được nhận dạng thế nào
+        # ---- ingest_guard: TÓM TẮT luôn hiện, CHI TIẾT mở rộng khi cần
         self.guard_box = ttk.LabelFrame(
             self.tab_det, text=L.t("ingest_guard — dữ liệu vào đã được nhận dạng thế nào"))
-        self.guard_box.pack(fill="x", padx=8, pady=(0, 8))
+        self.guard_box.pack(fill="x", padx=8, pady=(0, theme.sp(8)))
+        _gh = ttk.Frame(self.guard_box)
+        _gh.pack(fill="x", padx=theme.sp(6), pady=(theme.sp(4), 0))
+        self.guard_summary = ttk.Label(_gh, text=L.t("chưa có dữ liệu"),
+                                       style="CardMuted.TLabel")
+        self.guard_summary.pack(side="left")
+        self.guard_open = False
+        self.btn_guard = ttk.Button(_gh, text=L.t("Chi tiết ▾"), style="Ghost.TButton",
+                                    command=self.toggle_guard)
+        self.btn_guard.pack(side="right")
+        self.guard_detail = ttk.Frame(self.guard_box)
         self.guard_lbl = {}
         _grows = (("fmt", "Định dạng"), ("stage", "Stage"), ("dt", "Δt mẫu"),
                   ("bp", "Bandpass"), ("meta", "Metadata"),
                   ("adc", "ADC"), ("sk", "Spectral kurtosis"),
                   ("rad", "Radiometer"), ("gap", "Gap / đồng hồ"), ("tags", "Nhãn"))
         for _r, (_k, _ttl) in enumerate(_grows):
-            ttk.Label(self.guard_box, text=_ttl + ":", width=17,
+            ttk.Label(self.guard_detail, text=_ttl + ":", width=17,
                       style="CardMuted.TLabel").grid(
                 row=_r // 2, column=(_r % 2) * 2, sticky="w", padx=6, pady=2)
-            _lbl = ttk.Label(self.guard_box, text="—", style="Card.TLabel")
+            _lbl = ttk.Label(self.guard_detail, text="—", style="Card.TLabel")
             _lbl.grid(row=_r // 2, column=(_r % 2) * 2 + 1, sticky="w", padx=6)
             self.guard_lbl[_k] = _lbl
 
@@ -1006,6 +1020,49 @@ class App:
         self.det_canvas = FigureCanvasTkAgg(self.det_fig, master=vf)
         self.det_canvas.get_tk_widget().pack(fill="both", expand=True)
         self._refresh_figure_list()
+
+    def _build_detect_steps(self) -> None:
+        """Dải bước của Tab 2 (đọc là biết đang ở đâu, không cần đoán).
+
+        Mỗi bước có BIỂU TƯỢNG + CHỮ: ✔ xong · ▸ đang làm · ○ chưa tới.
+        """
+        self.det_steps = (
+            L.t("Chọn dữ liệu"), L.t("Kiểm tra đầu vào"), L.t("Cấu hình"),
+            L.t("Phân tích"), L.t("Kết quả"))
+        bar = ttk.Frame(self.tab_det)
+        bar.pack(fill="x", padx=theme.sp(6), pady=(theme.sp(6), 0))
+        self.det_step_lbl = []
+        for i, name in enumerate(self.det_steps):
+            lb = ttk.Label(bar, text="○ " + name, style="Muted.TLabel")
+            lb.pack(side="left", padx=(0, theme.sp(4)))
+            self.det_step_lbl.append(lb)
+            if i < len(self.det_steps) - 1:
+                ttk.Label(bar, text="→", style="Muted.TLabel").pack(
+                    side="left", padx=(0, theme.sp(4)))
+        self.det_step = -1
+        self.set_detect_step(0)
+
+    def set_detect_step(self, idx: int) -> None:
+        """Đánh dấu bước hiện tại: các bước trước = ✔, bước này = ▸."""
+        self.det_step = max(-1, min(int(idx), len(self.det_steps) - 1))
+        for i, lb in enumerate(getattr(self, "det_step_lbl", [])):
+            if i < self.det_step:
+                lb.configure(text="✔ " + self.det_steps[i], style="Ok.TLabel")
+            elif i == self.det_step:
+                lb.configure(text="▸ " + self.det_steps[i], style="H2.TLabel")
+            else:
+                lb.configure(text="○ " + self.det_steps[i], style="Muted.TLabel")
+
+    def toggle_guard(self) -> None:
+        """Mở/thu gọn phần chi tiết chất lượng dữ liệu."""
+        self.guard_open = not getattr(self, "guard_open", False)
+        if self.guard_open:
+            self.guard_detail.pack(fill="x", padx=theme.sp(6),
+                                   pady=(theme.sp(4), theme.sp(6)))
+            self.btn_guard.configure(text=L.t("Thu gọn ▴"))
+        else:
+            self.guard_detail.pack_forget()
+            self.btn_guard.configure(text=L.t("Chi tiết ▾"))
 
     # ---- TAB 3: mục tiêu
     def _build_targets_tab(self, parent=None):
@@ -1527,6 +1584,7 @@ class App:
             self.log(f"Đã chọn: {p} (nhớ nhập DM/P tham chiếu cho {stem})")
 
     def run_detect(self):
+        self.set_detect_step(3)          # đang phân tích
         path = self.det_file.get().strip()
         if not path or not os.path.exists(path):
             messagebox.showerror("Lỗi", "Chưa chọn file .fil hợp lệ")
@@ -1596,6 +1654,23 @@ class App:
         self.guard_lbl["gap"].configure(
             text="{} gap".format(met.get("n_gaps", 0)))
         self.guard_lbl["tags"].configure(text=tags)
+        # tóm tắt một dòng: nhãn dữ liệu + cảnh báo quan trọng nhất
+        try:
+            _warn = []
+            if (adc.get("tag") or "").upper() not in ("", "OK", "N/A"):
+                _warn.append("ADC " + str(adc.get("tag")))
+            if str(rad.get("tag") or "") not in ("", "OK"):
+                _warn.append(str(rad.get("tag")))
+            if sk.get("n_bad"):
+                _warn.append(f"{sk['n_bad']} kênh SK")
+            _ok = not _warn
+            self.guard_summary.configure(
+                text=("✔ " if _ok else "⚠ ") + (tags if tags != "—" else
+                                                L.t("bình thường"))
+                + ("" if _ok else "  ·  " + " · ".join(_warn)),
+                style="Ok.TLabel" if _ok else "Warn.TLabel")
+        except tk.TclError:
+            pass
 
     def open_result_file(self, name: str) -> None:
         """Mở một tệp trong thư mục kết quả của lần chạy gần nhất."""
@@ -1630,6 +1705,7 @@ class App:
         self.m3_lbl.configure(text=txt, style="Ok.TLabel" if b else "Warn.TLabel")
 
     def _after_detect(self):
+        self.set_detect_step(4)          # có kết quả
         try:
             self._fill_guard(getattr(self, "_last_metrics", None) or {})
         except Exception:
