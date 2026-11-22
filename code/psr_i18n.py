@@ -21,6 +21,22 @@ LANG_NAMES = {"vi": "Tiếng Việt", "en": "English"}
 
 # Bảng dịch: khoá là CHUỖI TIẾNG VIỆT đúng như trong giao diện.
 VI2EN = {
+    'Sẵn sàng. Chọn tab để bắt đầu.': 'Ready. Pick a tab to start.',
+    'Yêu cầu DỪNG — chờ file đóng an toàn…': 'STOP requested — waiting for a safe close…',
+    'Xoá mục tiêu': 'Delete target',
+    'Đang có tác vụ chạy — đợi hoàn tất trước.': 'A task is running — wait for it to finish.',
+    'Thiếu mục tiêu': 'Missing target',
+    'Hãy nhập tên mục tiêu.': 'Please enter a target name.',
+    'Không có SDR': 'No SDR',
+    'Chưa có file .fil nào trong data/ — hãy ghi thử trước.': 'No .fil yet in data/ — record a test session first.',
+    'Chưa có file vừa ghi để phân tích.': 'No freshly recorded file to analyse.',
+    'Lỗi': 'Error',
+    'Chưa chọn file .fil hợp lệ': 'No valid .fil selected',
+    "· RA có dấu ':' được hiểu là GIỜ-PHÚT-GIÂY; chỉ nhập số thì là ĐỘ.": "· RA with ':' is read as HOURS-MINUTES-SECONDS; a bare number is DEGREES.",
+    'Không đổi được thư mục': 'Cannot change the folder',
+    'Giờ/kênh/tsamp phải là số': 'hours/channels/tsamp must be numbers',
+    'DM/P phải là số': 'DM/P must be numbers',
+    '✔ Tác vụ hoàn tất.': '✔ Task finished.',
     '  1 · KẾ HOẠCH & GHI  ': '  1 · PLAN & RECORD  ',
     '  3 · CÀI ĐẶT & CÔNG CỤ  ': '  3 · SETTINGS & TOOLS  ',
     '  Danh mục & công cụ  ': '  Catalogue & tools  ',
