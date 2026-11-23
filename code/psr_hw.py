@@ -92,6 +92,44 @@ PARTS = {
                  ppm=0.01, loss_warning_msps=61.4,
                  note="Băng rộng nhất; cần PC đủ mạnh"),
 
+    # ---- receiver / điều khiển của POAM RTP-37 (thiết bị THỰC TẾ tại trạm) ----
+    # Số liệu lấy từ docs/09_ho_so_thiet_bi_rtp37.md (nhãn [DS]/[ẢNH]/[ĐO]).
+    # LƯU Ý: `iq_stream=False` ⇒ CHƯA có đường lấy mẫu IQ ra khỏi receiver; pipeline
+    # pulsar (psr_iq/psr_detect) KHÔNG dùng được cho tới khi POAM cung cấp API/luồng.
+    "poam_receiver": dict(
+        kind="receiver",
+        name="POAM Radio Telescope Receiver (100 MHz–6 GHz, USB3 + LAN)",
+        lo_mhz=100.0, hi_mhz=6000.0,
+        bw_mhz=50.0,                     # băng thực tức thời [DS]
+        max_rate_msps=15.0,              # IQ rate tối đa 15 MS/s [DS]
+        reliable_rate=10.0,              # mặc định/khuyến nghị 10 MS/s [DS]
+        bits=16,                          # [?] chưa xác nhận định dạng mẫu
+        nchan_rx=8,                       # RTRS #1..#8 [DS]
+        gain_min_db=0.0, gain_max_db=70.0, gain_step_db=1.0,
+        iq_stream=False,                 # ← CHẶN: chưa có API/luồng IQ
+        exports=("line.csv", "continuum.txt", "scan.txt"),
+        note="Đã có xuất phổ 2048 điểm (Δf 20 kHz) + công suất ≤10 Hz. "
+             "CHƯA có luồng IQ ⇒ không fold được pulsar; cần API từ POAM.",
+    ),
+    "poam_acu": dict(
+        kind="acu",
+        name="POAM Antenna Control Unit V1.5c03 (AZ/EL/POL, Modbus TCP)",
+        ip="192.168.1.10", port=502, protocol="modbus_tcp",
+        com_port="COM3",                 # kênh serial tới RTMS [ẢNH]
+        axes=("az", "el", "pol1", "pol2"),
+        travel_deg=dict(az=(0.0, 360.0), el=(0.0, 90.0)),   # hành trình cơ khí [DS]
+        encoders="resolver (AZ/EL) + resolver (POL)",       # [DS]/[ẢNH]
+        limits="công tắc hành trình cứng; hiện báo EL DOWN LIMIT ở ~29–30°",
+        track_modes=("RA/Dec", "Sun auto", "Sun manual"),    # [DS] §5
+        track_accuracy_deg=(1.0, 0.5, 0.3),                  # [DS] §5
+        remote_password="222222",        # [DS] §3 (Settings → remote)
+        gps_lock=False,                  # [ẢNH] GPS tắt
+        clock_note="ACU hiển thị LOCAL = GMT (UTC+0); RTCS đặt Time Zone 7 → "
+                   "lệch 7 h = 105° góc giờ nếu nhập sai múi giờ",
+        note="Có thể điều khiển từ PC qua Modbus TCP khi ACU ở chế độ Remote; "
+             "cần bảng thanh ghi từ POAM để app tự bám RA/Dec.",
+    ),
+
     # ---- nguồn cấp điện / phụ trợ ----
     "bias_tee": dict(kind="aux", name="Bias-tee 5V",
                      note="Cấp nguồn LNA qua cáp đồng trục"),

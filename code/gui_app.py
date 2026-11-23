@@ -1258,6 +1258,10 @@ class App:
         ttk.Button(f, text=L.t("Mở tài liệu docs"),
                    command=lambda: self.open_dir(os.path.join(ROOT_DIR, "docs"))
                    ).pack(side="left", padx=6)
+        # ---- công cụ RTCS: đọc phổ/continuum/scan do phần mềm POAM xuất ra
+        ttk.Button(f, text=L.t("Phân tích dữ liệu RTCS…"),
+                   style="Next.TButton",
+                   command=self.rtcs_pick_files).pack(side="left", padx=6)
 
         lf = ttk.LabelFrame(host, text=L.t("Kết quả kiểm chứng"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
@@ -1267,6 +1271,94 @@ class App:
         self.chk_out.configure(yscrollcommand=sb.set)
         self.chk_out.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+
+    # ---------------------------------------------------- công cụ RTCS (POAM)
+    def rtcs_pick_files(self) -> None:
+        """Chọn 3 tệp xuất của RTCS (không bắt buộc đủ cả 3) rồi phân tích."""
+        from tkinter import filedialog
+        init = os.path.join(ROOT_DIR, "..", "radio research", "RADIO DATA")
+        if not os.path.isdir(init):
+            init = ROOT_DIR
+        files = filedialog.askopenfilenames(
+            parent=self.root, initialdir=init,
+            title=L.t("Chọn tệp xuất của RTCS (line / continuum / scan)"),
+            filetypes=[(L.t("Tệp xuất RTCS"), "*.csv *.txt"),
+                       (L.t("Tất cả"), "*.*")])
+        if not files:
+            return
+        self.rtcs_analyse(list(files))
+
+    def rtcs_classify(self, paths) -> dict:
+        """Đoán loại tệp theo nội dung (không dựa vào tên): trả dict 3 khoá."""
+        out = {}
+        for p in paths:
+            try:
+                head = open(p, encoding="utf-8", errors="replace").read(4000)
+            except OSError:
+                continue
+            low = head.lower()
+            if "time - rtrs" in low or ("dbm - rtrs" in low):
+                out.setdefault("continuum", p)
+            elif "az-deg" in low or ("azimuth" in low and "rtrs" in low):
+                out.setdefault("scan", p)
+            elif "frequency" in low and "power" in low:
+                out.setdefault("line", p)
+            else:
+                # dò theo dữ liệu: 3 cột số → scan; 2 cột → phổ
+                n3 = n2 = 0
+                for ln in head.splitlines()[1:40]:
+                    c = [x for x in ln.replace(",", "\t").split("\t") if x.strip()]
+                    try:
+                        [float(v) for v in c]
+                    except ValueError:
+                        continue
+                    if len(c) >= 3:
+                        n3 += 1
+                    elif len(c) == 2:
+                        n2 += 1
+                if n3 > n2:
+                    out.setdefault("scan", p)
+                elif n2:
+                    out.setdefault("line", p)
+        return out
+
+    def rtcs_analyse(self, paths=None) -> None:
+        """Chạy psr_rtcs trên các tệp đã chọn/đã truyền vào; in báo cáo vào ô kết quả."""
+        import datetime
+
+        import psr_rtcs
+        if paths is None:
+            paths = []
+        kinds = self.rtcs_classify(paths)
+        if not kinds:
+            self.log(L.t("Không nhận ra tệp RTCS nào (cần line / continuum / scan)"),
+                     "err")
+            return
+        out = os.path.join(RESULTS_DIR,
+                           datetime.datetime.now().strftime("%Y%m%d_%H%M%S"),
+                           "rtcs")
+        self.log(L.t("RTCS: phân tích {n} tệp → {o}").format(n=len(kinds), o=out))
+        try:
+            res = psr_rtcs.analyse_all(line=kinds.get("line"),
+                                       continuum=kinds.get("continuum"),
+                                       scan=kinds.get("scan"), out_dir=out)
+            txt = psr_rtcs.text_report(res)
+        except Exception as exc:                 # noqa: BLE001
+            self.log(f"RTCS lỗi: {exc!r}", "err")
+            return
+        try:
+            self.chk_out.configure(state="normal")
+            self.chk_out.delete("1.0", "end")
+            self.chk_out.insert("end", txt)
+            self.chk_out.configure(state="disabled")
+        except tk.TclError:
+            pass
+        print(txt)
+        self.log(L.t("RTCS: xong — xem báo cáo trong 'Kết quả kiểm chứng'"), "ok")
+        try:
+            self.open_dir(out)
+        except Exception:                        # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------ tiện ích UI
     def log(self, msg: str, tag: str = ""):
