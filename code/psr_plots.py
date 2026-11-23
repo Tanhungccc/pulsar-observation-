@@ -432,12 +432,14 @@ def plot_timeseries(t_s, series, peaks=None, ax=None, title="",
     if peaks:
         tp = np.array([p["t_s"] for p in peaks]) * scale
         sp = np.interp(np.array([p["t_s"] for p in peaks]), np.asarray(t_s), y)
+        # cột mốc ngắn + tam giác đặt TRÊN đỉnh, CHỪA KHOẢNG HỞ nhỏ để không
+        # chạm vào dữ liệu (tỉ lệ theo độ cao khung nên mọi cỡ hình đều thấy)
+        gap = 0.05 * span
         stem = 0.10 * span
-        # cột mốc ngắn + tam giác đặt TRÊN đỉnh (không cắt qua dữ liệu)
-        ax.vlines(tp, sp, sp + stem, color=C_PULSE, lw=0.9, zorder=6)
-        ax.plot(tp, sp + stem, "v", color=C_PULSE, ms=8, mew=0.6, mec="k",
+        ax.vlines(tp, sp + gap, sp + gap + stem, color=C_PULSE, lw=0.9, zorder=6)
+        ax.plot(tp, sp + gap + stem, "v", color=C_PULSE, ms=8, mew=0.6, mec="k",
                 zorder=7, label=f"xung phát hiện (n={len(peaks)})")
-        ymax = max(ymax, float(np.max(sp + stem)))
+        ymax = max(ymax, float(np.max(sp + gap + stem)))
     ax.set_ylim(ymin - 0.08 * span, ymax + 0.10 * span)
     ax.set_xlabel(f"thời gian ({unit})")
     ax.set_ylabel(ylabel)
@@ -528,11 +530,16 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
         # sang mẫu bên cạnh — tránh hiểu nhầm "xung ở chỗ khác"
         t_ap = float(tp)
         y_ap = float(np.interp(t_ap, t, y))
+        # KHOẢNG HỞ nhỏ giữa đỉnh xung và chân cột mốc để tam giác không
+        # chạm vào đường dữ liệu (trước đây cột mốc bắt đầu đúng tại đỉnh).
+        gap = 0.055 * span
         stem = 0.10 * span
-        ax.vlines(t_ap, y_ap, y_ap + stem, color=C_PULSE, lw=0.9, zorder=6)
-        ax.plot([t_ap], [y_ap + stem], "v", color=C_PULSE, ms=8, mew=0.6,
+        ax.vlines(t_ap, y_ap + gap, y_ap + gap + stem,
+                  color=C_PULSE, lw=0.9, zorder=6)
+        ax.plot([t_ap], [y_ap + gap + stem], "v", color=C_PULSE, ms=8, mew=0.6,
                 mec="k", zorder=7, label="_nolegend_")
-        ax.set_ylim(ymin - 0.10 * span, max(ymax + 0.22 * span, y_ap + 2.2 * stem))
+        ax.set_ylim(ymin - 0.10 * span,
+                    max(ymax + 0.22 * span, y_ap + gap + 2.4 * stem))
     leg = place_legend(ax)
     if metrics.get("w50_ms"):
         ax.set_title(title + f" — W50 (hồ sơ) = {metrics['w50_ms']:.1f} ms")
