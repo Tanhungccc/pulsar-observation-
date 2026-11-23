@@ -66,6 +66,9 @@
 | AGC | **0.0** (chưa có tín hiệu/ chưa nối) | `[ẢNH]` |
 | Nhiệt ẩm trong hộp | 42,1 °C / 37,3 % → 40,6 °C / 40,6 % | `[ẢNH]` |
 | Đồng hồ | `LOCAL = GMT` (UTC+0) **≠** Time Zone 7 trong RTCS | `[ẢNH]` |
+| **Hệ quả nếu lệch múi giờ** | RTCS đổi RA/Dec → Az/El qua **LST**, mà LST tính từ
+  giờ địa phương. Lệch 7 h = **105° góc giờ** ⇒ chảo trỏ sai hẳn vùng trời (không chỉ
+  lệch vài độ). **GPS đang tắt** nên không có nguồn giờ chuẩn nào tự hiệu chỉnh. | `[TÍNH]` |
 | Nhập remote | ACU `Settings` → mật khẩu **222222** → chuyển remote | `[DS]` §3 |
 
 ---
@@ -102,7 +105,7 @@
 
 | Tệp | Định dạng | Đo được `[ĐO]` |
 |---|---|---|
-| `line.csv` / `Line observation.txt` | `Frequency (Hz)` \| `Power (dBm)` | 2048 điểm · 1475–1525 MHz · Δf 20 kHz · TB **−100,1 dBm** · σ 5,58 dB · đỉnh **1499,99 MHz = −86,1 dBm (+14,0 dB)** |
+| `line.csv` / `Line observation.txt` | `Frequency (Hz)` \| `Power (dBm)` | 2048 điểm · 1475–1525 MHz · Δf 20 kHz · trung vị **−99,3 dBm** · RMS 5,08 dB · đỉnh **1499,99 MHz = −86,1 dBm** (**+2,6σ** so với RMS ⇒ chưa đủ tin cậy là vạch phổ) |
 | `continuum observation.txt` / `.csv` | `Time` \| `dBm` × 8 kênh | 1024 mẫu (98–1121 s) · TB −76,9 dBm · **trôi −1,90 dB/phút** · p2p 76,8 dB |
 | `123.txt` | `AZ-deg` \| `EL-deg` \| `RTRS1` | 147 điểm · AZ 0,6–237,8° · EL 33,6–57,2° · 94 điểm có số · p2p 79,7 dB |
 | `…v2.2.pdf`, `3.7-m-…v6-1.pdf` | tài liệu hãng | 51 + 40 trang |
@@ -153,7 +156,15 @@ thực tế tối đa **15 MHz**.
 
 ## 7. Checklist buổi ra đài tiếp theo (thứ tự bắt buộc)
 
-1. **Sửa toạ độ trong RTCS** → `106.7009°E / 10.7769°N`, kiểm tra lại Time Zone = 7.
+1. **Sửa toạ độ trong RTCS** → `106.7009°E / 10.7769°N`, **Time Zone = 7 (East)**.
+   - ⚠ **Kiểm tra đồng bộ thời gian NGAY sau đó** (quan trọng ngang toạ độ):
+     · ACU V1.5c03 đang hiển thị `LOCAL = GMT` ⇒ nếu người vận hành nhập **giờ Việt Nam**
+       trong khi ACU coi đó là UTC, LST lệch **7 h ≈ 105° góc giờ** và chảo bám sai hẳn nguồn.
+     · Đối chiếu ba nguồn: giờ PC (UTC+7) ↔ ACU `LOCAL/GMT` ↔ `LST` hiển thị trong RTCS.
+     · Cách kiểm nhanh: RTCS hiển thị `LST`; so với LST tính từ `psr_swcomp`/astropy tại
+       đúng thời điểm và kinh độ 106,7009°E — **sai khác phải < 10 s** (≈ 0,04°).
+     · GPS đang **tắt**: hoặc bật GPS, hoặc đặt đồng hồ PC/ACU theo NTP và ghi rõ múi giờ
+       vào header mỗi phiên đo (`[ĐO]` trong metadata).
 2. **Xử lý `EL DOWN LIMIT`** theo manual §6.2.2 (mật khẩu ACU `222222` nếu chỉnh phần mềm);
    xác nhận chảo hạ/bám được tới EL 33–34° cho Vela.
 3. **Ba phép đo hiệu chuẩn:**
@@ -172,3 +183,4 @@ thực tế tối đa **15 MHz**.
 |---|---|
 | 2026-11-22 | Dựng hồ sơ ban đầu từ datasheet RTP-37 + N6002 (docs/02 §4.4) |
 | 2026-11-23 | Bổ sung ảnh hiện trường: feed C-band, Drive Unit 24 V (AZ/EL/POL), ACU V1.5c03 + `EL DOWN LIMIT`, AGC 0.0, GPS tắt; đọc ảnh RTCS: RTRS ×8, IQ 10 MS/s, B 50 MHz, gain 20 dB, tune 1,5 GHz; phân tích 3 tệp xuất trong `RADIO DATA` |
+| 2026-11-23 | Thêm `code/psr_rtcs.py` (đọc 3 định dạng xuất RTCS, khớp Gauss tính HPBW, hiệu chuẩn Appendix A, `--selftest` 16/16). Chạy trên dữ liệu thật: phổ 2048 điểm (đỉnh 1499,99 MHz chỉ **+2,6σ** ⇒ chưa phải vạch phổ thật); continuum trôi **−1,93 dB/phút**; scan 3 lượt khớp yếu (SNR 2–3) ⇒ **chưa kết luận được HPBW**, cần quét thẳng qua nguồn bước 0,2–0,5° |

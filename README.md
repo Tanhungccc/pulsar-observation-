@@ -29,6 +29,8 @@ pulsar observation/
 │   ├── psr_detect.py               pipeline phát hiện trên DỮ LIỆU THẬT (.fil)
 │   ├── psr_plots.py                biểu đồ chuẩn (nhãn + đơn vị + chú giải đúng)
 │   ├── psr_hw.py                   mô hình phần cứng: dự đoán chuỗi + tự fallback
+│   ├── psr_rtcs.py                 ★ đọc dữ liệu xuất RTCS (phổ/continuum/scan),
+│   │                               khớp Gauss tính HPBW, hiệu chuẩn Appendix A
 │   ├── psr_swcomp.py               bù trừ bằng phần mềm (ppm, transit, stacking…)
 │   ├── record_unattended.py        GHI TỰ ĐỘNG 4–5 giờ không cần canh chừng
 │   ├── psr_sim.py                  sinh dữ liệu pulsar tổng hợp (kiểm chứng)
