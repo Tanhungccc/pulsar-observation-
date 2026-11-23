@@ -19,7 +19,8 @@ pulsar observation/
 │   ├── 05_ke_hoach_trien_khai.md   kế hoạch 5 giai đoạn + cổng G0–G4 + chi phí
 │   ├── 06_phan_cung_toi_gian_va_ghi_tu_dong.md  phần cứng tối giản, ghi tự động, nghiệm thu
 │   ├── 07_kien_truc_he_thong_xu_ly.md  ★ ĐẶC TẢ CHỐT kiến trúc 6 tầng + mốc M1–M5
-│   └── 08_nghien_cuu_kha_thi.md     làm được gì về pulsar với thiết bị hiện có (kèm arXiv)
+│   ├── 08_nghien_cuu_kha_thi.md     làm được gì về pulsar với thiết bị hiện có (kèm arXiv)
+│   └── 09_ho_so_thiet_bi_rtp37.md  ★ HỒ SƠ THIẾT BỊ THỰC TẾ (chảo, feed, tủ rack, RTCS, số đo)
 ├── code/
 │   ├── psr_core.py                 lõi DSP (tán sắc, fold, FFT, RFI, SNR, DM)
 │   ├── psr_fil.py                  đọc/ghi SIGPROC .fil (1/2/4/8/16/32-bit, nifs>1)
