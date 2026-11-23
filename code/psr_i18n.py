@@ -21,6 +21,13 @@ LANG_NAMES = {"vi": "Tiếng Việt", "en": "English"}
 
 # Bảng dịch: khoá là CHUỖI TIẾNG VIỆT đúng như trong giao diện.
 VI2EN = {
+    "Mở SVG (zoom ∞)": "Open SVG (infinite zoom)",
+    "Chưa có bản vector": "No vector file yet",
+    "Chưa có hình": "No figure yet",
+    "Hãy chạy phát hiện trước.": "Run detection first.",
+    "Hình này chỉ có PNG (lần chạy cũ). Hãy bấm Chạy phát hiện lại "
+    "để có kèm .svg/.pdf.": "This figure only has PNG (older run). "
+    "Run detection again to get .svg/.pdf.",
     'Sẵn sàng. Chọn tab để bắt đầu.': 'Ready. Pick a tab to start.',
     'Yêu cầu DỪNG — chờ file đóng an toàn…': 'STOP requested — waiting for a safe close…',
     'Xoá mục tiêu': 'Delete target',

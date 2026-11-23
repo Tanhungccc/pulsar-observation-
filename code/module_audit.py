@@ -15,6 +15,7 @@ import contextlib
 import math
 import os
 import shutil
+import re
 import sys
 import tempfile
 import time
@@ -461,6 +462,43 @@ def audit_plots():
 
 
 # ------------------------------------------------------------- psr_sensitivity
+def audit_vector_export():
+    """Ghi hình phải có PNG + SVG + PDF (SVG/PDF = vector → zoom không vỡ)."""
+    section("psr_plots (vector)")
+    import os
+    import tempfile
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import psr_plots as P
+
+    d = tempfile.mkdtemp(prefix="_vec_")
+    f, a = plt.subplots()
+    a.plot([1, 2, 3], [2, 1, 4], label="dữ liệu")
+    a.set_xlabel("t (ms)")
+    try:
+        out = P.save_all(f, os.path.join(d, "fig.png"))
+        plt.close(f)
+        names = sorted(os.path.basename(x) for x in out)
+        chk("save_all ghi đủ 3 định dạng PNG/SVG/PDF",
+            names == ["fig.pdf", "fig.png", "fig.svg"], str(names))
+        chk("3 tệp đều tồn tại và khác rỗng",
+            all(os.path.getsize(os.path.join(d, n)) > 500 for n in names))
+        svg = open(os.path.join(d, "fig.svg"), encoding="utf-8").read()
+        chk("SVG là XML hợp lệ", svg.lstrip().startswith("<?xml"))
+        chk("SVG giữ CHỮ là text (fonttype=none) → chọn/copy được",
+            "<text" in svg and "t (ms)" in svg)
+        chk("PDF đúng header %PDF",
+            open(os.path.join(d, "fig.pdf"), "rb").read(4) == b"%PDF")
+        # vector thật: chữ không bị chuyển thành đường vẽ
+        chk("SVG không nhúng ảnh raster cho đồ thị đường",
+            "<image" not in svg)
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def audit_sensitivity():
     section("psr_sensitivity")
     import psr_sensitivity as S
@@ -664,7 +702,13 @@ def audit_recorder():
 def audit_gui():
     section("gui_app")
     import gui_app
-    chk("VERSION là 1.4.x", gui_app.VERSION.startswith("1.4"), gui_app.VERSION)
+    _majmin = ".".join(gui_app.VERSION.split(".")[:2])
+    chk("VERSION đúng dạng semver (x.y.z)",
+        bool(re.fullmatch(r"\d+\.\d+\.\d+", gui_app.VERSION)), gui_app.VERSION)
+    chk("VERSION khớp README (không lệch tài liệu)",
+        _majmin + "." in open("../README.md", encoding="utf-8").read()
+        or gui_app.VERSION in open("../README.md", encoding="utf-8").read(),
+        f"{gui_app.VERSION} · {_majmin}")
     tmp = os.path.join(tempfile.gettempdir(), "_audit_settings.json")
     old = os.environ.get("PSR_SETTINGS")
     os.environ["PSR_SETTINGS"] = tmp
@@ -690,6 +734,7 @@ AUDITS = {
     "psr_paths": audit_paths, "psr_fil": audit_fil, "psr_fits": audit_fits,
     "psr_iq": audit_iq, "psr_core": audit_core, "psr_period": audit_period,
     "psr_detect": audit_detect, "psr_plots": audit_plots,
+    "psr_plots (vector)": audit_vector_export,
     "psr_sensitivity": audit_sensitivity, "psr_targets": audit_targets,
     "psr_swcomp": audit_swcomp, "psr_i18n": audit_i18n,
     "ingest_guard": audit_guard, "record_unattended": audit_recorder,

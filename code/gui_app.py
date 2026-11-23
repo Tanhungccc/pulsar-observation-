@@ -1126,12 +1126,25 @@ class App:
         self.det_figpick.bind("<<ComboboxSelected>>", self.show_selected_figure)
         ttk.Button(top, text=L.t("Mở bằng trình xem ảnh"),
                    command=self.open_figure_external).pack(side="left", padx=4)
+        ttk.Button(top, text=L.t("Mở SVG (zoom ∞)"),
+                   style="Next.TButton",
+                   command=self.open_figure_vector).pack(side="left", padx=4)
 
         from matplotlib.figure import Figure
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from matplotlib.backends.backend_tkagg import (
+            FigureCanvasTkAgg, NavigationToolbar2Tk)
         self.det_fig = Figure(figsize=(9, 5.2))
         self.det_canvas = FigureCanvasTkAgg(self.det_fig, master=vf)
         self.det_canvas.get_tk_widget().pack(fill="both", expand=True)
+        # Thanh công cụ matplotlib: zoom khung, pan, lưu — zoom trong app là
+        # phóng ẢNH ĐÃ VẼ; muốn zoom vô hạn thì mở bản SVG/PDF (nút bên trên).
+        try:
+            self.det_toolbar = NavigationToolbar2Tk(
+                self.det_canvas, vf, pack_toolbar=False)
+            self.det_toolbar.update()
+            self.det_toolbar.pack(side="bottom", fill="x")
+        except Exception:                 # noqa: BLE001 — thiếu backend thì thôi
+            self.det_toolbar = None
         self._refresh_figure_list()
 
     def _build_detect_steps(self) -> None:
@@ -1985,6 +1998,32 @@ class App:
         except Exception as e:
             self.log(f"Không hiển thị được hình: {e!r}", "err")
 
+    def open_figure_vector(self):
+        """Mở bản VECTOR (SVG ưu tiên, rồi PDF) của hình đang chọn.
+
+        SVG/PDF là vector: phóng to bao nhiêu cũng không vỡ nét, chữ chọn/copy
+        được — dán thẳng vào báo cáo hay slide. Nếu lần chạy cũ chỉ có PNG thì
+        báo rõ để chạy lại phát hiện (bản mới tự ghi kèm SVG/PDF).
+        """
+        name = self.det_figpick.get()
+        if not name:
+            messagebox.showinfo(L.t("Chưa có hình"), L.t("Hãy chạy phát hiện trước."))
+            return
+        stem = os.path.splitext(name)[0]
+        for ext in (".svg", ".pdf"):
+            p = os.path.join(RESULTS_DIR, stem + ext)
+            if os.path.exists(p):
+                try:
+                    os.startfile(p)       # SVG → mở bằng trình duyệt/Inkscape
+                    self.log(f"Đã mở bản vector: {os.path.basename(p)}", "ok")
+                except OSError as e:
+                    messagebox.showerror(L.t("Lỗi"), f"Không mở được {p}: {e}")
+                return
+        messagebox.showinfo(
+            L.t("Chưa có bản vector"),
+            L.t("Hình này chỉ có PNG (lần chạy cũ). Hãy bấm Chạy phát hiện lại "
+                "để có kèm .svg/.pdf."))
+
     def open_figure_external(self):
         name = self.det_figpick.get()
         p = os.path.join(RESULTS_DIR, name) if name else None
@@ -2139,7 +2178,7 @@ class App:
 
 
 # ---------------------------------------------------------------- selfcheck EXE
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 
 def selfcheck() -> int:

@@ -196,7 +196,16 @@ def safe_stem(name: str) -> str:
 
 
 def _savefig(fig, path: str, tries: int = 4) -> None:
-    """savefig có thử lại: Windows/AV có thể khoá file trong tích tắc."""
+    """Ghi hình ra PNG **kèm SVG/PDF vector** (zoom không vỡ nét).
+
+    Thử lại: Windows/AV có thể khoá file trong tích tắc.
+    """
+    try:
+        import psr_plots as _pp
+        _pp.save_all(fig, path, tries=tries)
+        return
+    except Exception:               # noqa: BLE001 — vẫn phải có PNG
+        pass
     for k in range(tries):
         try:
             fig.savefig(path)

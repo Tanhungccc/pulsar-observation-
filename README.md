@@ -62,6 +62,22 @@ Tải **`PulsarObs.exe`** từ trang Releases:
 
 Double-click để mở. Repo **không chứa dữ liệu quan sát** — tải theo `DATA_SOURCES.md`.
 
+**Phiên bản mới nhất: 1.6.0.**
+
+### Hình vẽ: mỗi hình xuất 3 định dạng
+
+Mỗi lần chạy, thư mục `results/<YYYYMMDD_HHMMSS>/` có **cùng một hình ở 3 đuôi**:
+
+| Tệp | Dùng để | Đặc điểm |
+|---|---|---|
+| `figN_*.png` | xem nhanh trong app, chèn vào báo cáo ngắn | ảnh raster 200 dpi — **phóng to sẽ vỡ nét** |
+| `figN_*.svg` | **zoom vô hạn** (mở bằng Edge/Chrome/Inkscape) | vector, chữ chọn/copy được, nhẹ hơn PNG |
+| `figN_*.pdf` | in ấn, dán vào Word/LaTeX, gửi hội đồng | vector, font nhúng |
+
+Trong Tab 2 có nút **“Mở SVG (zoom ∞)”** để mở bản vector của hình đang chọn, và thanh
+công cụ matplotlib (**zoom khung / pan / lưu**) ngay dưới khung hình. Lưu ý: zoom thanh
+công cụ là phóng ảnh đã vẽ; muốn xem chi tiết tới từng điểm dữ liệu thì dùng **SVG/PDF**.
+
 ## 0b. Trạng thái & lộ trình phần mềm
 
 Baseline hiện tại đã kiểm chứng xong (selftest 23/23, gui 48/48, nghiệm thu 67/67).

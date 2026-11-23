@@ -28,13 +28,51 @@ plt.rcParams.update({
     "axes.labelsize": 9.5,
     "legend.fontsize": 8.5,
     "figure.dpi": 130,
-    "savefig.dpi": 130,
+    # PNG để xem nhanh (200 dpi đủ nét khi zoom vừa); SVG/PDF là VECTOR —
+    # zoom bao nhiêu cũng không vỡ nét (chuẩn của bài báo: vector, không raster).
+    "savefig.dpi": 200,
+    "svg.fonttype": "none",     # giữ chữ là text thật → chọn/copy được, file nhỏ
+    "pdf.fonttype": 42,         # TrueType nhúng → in ấn/hiệu đính được
     "axes.grid": True,
     "grid.alpha": 0.25,
     "xtick.minor.visible": True,
     "ytick.minor.visible": True,
     "font.family": "DejaVu Sans",
 })
+
+#: Định dạng vector ghi kèm mỗi hình. PNG = xem nhanh; SVG/PDF = zoom vô hạn.
+VECTOR_FORMATS = ("svg", "pdf")
+
+
+def save_all(fig, path_png: str, tries: int = 4) -> list:
+    """Ghi 1 hình ra **PNG + SVG + PDF** cùng tên gốc, trả về đường dẫn đã ghi.
+
+    Vì sao: PNG là ảnh raster — phóng to là thấy điểm ảnh. SVG/PDF là vector,
+    zoom tới mức nào nét vẫn sắc, và mở được bằng trình duyệt (Edge/Chrome),
+    Inkscape, Adobe Illustrator, Word/PowerPoint → dán thẳng vào báo cáo.
+    """
+    import os
+    import time as _time
+    stem = os.path.splitext(path_png)[0]
+    out = []
+    targets = [(path_png, None)] + [(f"{stem}.{ext}", ext) for ext in VECTOR_FORMATS]
+    for target, ext in targets:
+        for k in range(tries):
+            try:
+                if ext is None:
+                    fig.savefig(target)
+                else:
+                    # dpi chỉ ảnh hưởng LỚP RASTER nhúng trong file vector
+                    # (waterfall); chữ/trục vẫn là vector → vẫn nét vô hạn
+                    fig.savefig(target, format=ext, dpi=150)
+                out.append(target)
+                break
+            except OSError as e:
+                if k == tries - 1:
+                    raise OSError(f"không ghi được {target} sau {tries} lần: {e}"
+                                  ) from e
+                _time.sleep(0.4 * (k + 1))
+    return out
 
 C_PULSE = "#d62728"     # đỏ: tín hiệu pulsar
 
@@ -422,7 +460,7 @@ def plot_waterfall(dyn, freqs_mhz, tsamp_s, ax=None, title="", db=True,
     d = np.asarray(dyn)
     if d.ndim == 2:
         _nc, _nt = d.shape
-        _st = max(1, _nt // 2000)
+        _st = max(1, _nt // 1400)
         _sc = max(1, _nc // 512)
         if _st > 1 or _sc > 1:
             d = d[::_sc, ::_st]
@@ -431,7 +469,11 @@ def plot_waterfall(dyn, freqs_mhz, tsamp_s, ax=None, title="", db=True,
         d = d[:, : int(t_max_s / tsamp_s)]
     img = 10 * np.log10(np.maximum(d, 1e-12)) if db else d
     lo = np.percentile(img, 5); hi = np.percentile(img, 99.5)
+    # rasterized=True: ảnh waterfall vốn là raster → nhúng 1 lớp ảnh vào SVG/PDF
+    # thay vì vẽ hàng triệu hình chữ nhật (fig1.svg từ 4,5 MB → vài trăm kB,
+    # mở tức thì) nhưng trục/chữ/nhãn VẪN là vector nên vẫn nét khi zoom.
     im = ax.imshow(img, aspect="auto", origin="lower", cmap="viridis",
+                   rasterized=True,
                    vmin=lo, vmax=hi,
                    extent=[0.0, img.shape[1] * tsamp_s * 1e3,
                            freqs_mhz[0], freqs_mhz[-1]])
