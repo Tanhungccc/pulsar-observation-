@@ -107,7 +107,12 @@ def dedisperse(dyn, freqs_mhz, dm: float, tsamp_s: float,
 
     Trả về (series, n_dropped) — series dài hơn 0, n_dropped mẫu bị bỏ ở đầu.
     """
-    dyn = np.asarray(dyn, dtype=np.float64)
+    # GIỮ dtype của đầu vào: file .fil đọc ra float32 thì tích luỹ bằng float32.
+    # Trước đây luôn upcast float64 → mỗi lần quét DM phát sinh bản sao gấp đôi
+    # bộ nhớ (đo được: file 600 MB → đỉnh RAM 9,9 GB khi quét ~1 000 bước DM).
+    x_in = np.asarray(dyn)
+    dt = np.float32 if x_in.dtype == np.float32 else np.float64
+    dyn = np.asarray(dyn, dtype=dt)
     freqs = np.asarray(freqs_mhz, dtype=float)
     if not np.isfinite(tsamp_s) or tsamp_s <= 0:
         raise ValueError(f"tsamp_s phải > 0 (nhận {tsamp_s})")
@@ -120,7 +125,7 @@ def dedisperse(dyn, freqs_mhz, dm: float, tsamp_s: float,
     n = dyn.shape[1] - smax
     if n <= 0:
         raise ValueError("DM quá lớn so với độ dài dữ liệu (không còn mẫu)")
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=dt)
     w = np.ones(len(freqs)) if weights is None else np.asarray(weights, float)
     for i, sh in enumerate(shifts):
         out += w[i] * dyn[i, sh:sh + n]
@@ -538,7 +543,9 @@ def find_pulses(series, tsamp_s: float, threshold: float = 8.0,
     xếp theo SNR. `width_ms` là độ rộng CỬA SỔ lọc boxcar (theo lưới),
     còn `w50_ms`/`w25_ms` là bề rộng ĐO TRÊN HỒ SƠ tại 50 %/25 % đỉnh.
     """
-    x = np.asarray(series, dtype=np.float64)
+    x = np.asarray(series)
+    if x.dtype != np.float32:
+        x = np.asarray(x, dtype=np.float64)
     med = np.median(x)
     rms = 1.4826 * np.median(np.abs(x - med)) + 1e-12
     d = x - med
@@ -594,7 +601,9 @@ def mask_bursty_channels(dyn, max_ratio: float = 3.0, pct: float = 99.9):
     khử tán sắc nó sẽ áp đảo toàn dải (đã gặp: 827/4096 kênh như vậy trong
     file IQRM "empty_example", làm SNR giả 1210σ, che mất tín hiệu thật).
     """
-    d = np.asarray(dyn, dtype=np.float64)
+    _xin = np.asarray(dyn)
+    _dt = np.float32 if _xin.dtype == np.float32 else np.float64
+    d = np.asarray(dyn, dtype=_dt)
     med = np.median(d, axis=1)
     hi = np.percentile(d, pct, axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):

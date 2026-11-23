@@ -37,6 +37,25 @@ plt.rcParams.update({
 })
 
 C_PULSE = "#d62728"     # đỏ: tín hiệu pulsar
+
+# ===================== QUY ƯỚC KÝ HIỆU TRÊN HÌNH (theo lối các bài báo) =====
+#  Ý nghĩa                        | Ký hiệu / nét            | Hằng số
+#  -------------------------------|--------------------------|---------------
+#  Dữ liệu ĐO được                | chấm tròn đặc  ●         | MK_MEAS = "o"
+#  Đỉnh xung ĐÃ PHÁT HIỆN         | tam giác ▽ ngay trên đỉnh| MK_PEAK = "v"
+#  Giá trị DANH MỤC / lý thuyết   | đường nét đứt mảnh       | C_REF
+#  Đường KHỚP                     | nét liền                 | C_FIT
+#  Vùng xung W50                  | dải tô nhạt ±W50/2       | alpha 0.18
+#  Bất định ±1σ                   | dải tô quanh đường khớp  | alpha 0.18
+#
+# Vì sao: trong hình học pulsar, người đọc quen "● = đo, -- = tham chiếu,
+# — = khớp, dải tô = khoảng bất định"; KHÔNG dùng cột mốc + đường dọc cho mỗi
+# đỉnh vì (a) che dữ liệu, (b) trùng với đường tham chiếu nét đứt, (c) khi có
+# nhiều xung thì rối. Đỉnh chỉ cần một ▽ nhỏ nằm trên đỉnh, số liệu ghi ở
+# chú giải.
+MK_MEAS = "o"
+MK_PEAK = "v"
+C_REF = "#6b7280"        # xám đậm: giá trị danh mục / tham chiếu
 C_NOISE = "#7f7f7f"     # xám: nền/nhiễu
 C_FIT = "#1f77b4"       # xanh: đường khớp/đo
 C_TRUE = "#2ca02c"      # xanh lá: giá trị tham chiếu (catalogue/mô phỏng)
@@ -398,7 +417,16 @@ def plot_waterfall(dyn, freqs_mhz, tsamp_s, ax=None, title="", db=True,
     """Waterfall tần số × thời gian. Đơn vị rõ ràng, không ngắt nhầm trục."""
     if ax is None:
         _, ax = plt.subplots(figsize=(7.2, 3.6))
-    d = np.asarray(dyn, dtype=np.float64)
+    # GIẢM MẪU trước khi vẽ: imshow chỉ cần ~2000 cột; trước đây ép cả mảng
+    # 150 triệu mẫu sang float64 (~1,2 GB) chỉ để vẽ một hình ~500 px.
+    d = np.asarray(dyn)
+    if d.ndim == 2:
+        _nc, _nt = d.shape
+        _st = max(1, _nt // 2000)
+        _sc = max(1, _nc // 512)
+        if _st > 1 or _sc > 1:
+            d = d[::_sc, ::_st]
+    d = np.asarray(d, dtype=np.float32)
     if t_max_s:
         d = d[:, : int(t_max_s / tsamp_s)]
     img = 10 * np.log10(np.maximum(d, 1e-12)) if db else d
@@ -440,6 +468,11 @@ def plot_timeseries(t_s, series, peaks=None, ax=None, title="",
         ax.plot(tp, sp + gap + stem, "v", color=C_PULSE, ms=8, mew=0.6, mec="k",
                 zorder=7, label=f"xung phát hiện (n={len(peaks)})")
         ymax = max(ymax, float(np.max(sp + gap + stem)))
+        if peaks:
+            _p0 = peaks[0]
+            ax.plot([], [], MK_PEAK, color=C_PULSE, ms=7, mew=0.6, mec="k",
+                    label=(f"xung phát hiện: t = {_p0['t_s']*scale:.1f} "
+                           f"{unit}, SNR = {_p0['snr']:.0f}"))
     ax.set_ylim(ymin - 0.08 * span, ymax + 0.10 * span)
     ax.set_xlabel(f"thời gian ({unit})")
     ax.set_ylabel(ylabel)
@@ -480,9 +513,9 @@ def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
                 zorder=2, label=f"ngưỡng phát hiện {threshold:.0f}σ")
     if dm_meas is not None:
         # marker TAM GIÁC ở đầu vạch = giá trị ĐO ĐƯỢC
-        ax.plot([dm_meas, dm_meas], [y_hi, y_hi], "v", color=C_PULSE, ms=6.5,
+        ax.plot([dm_meas, dm_meas], [y_hi, y_hi], MK_MEAS, color=C_PULSE, ms=6.5,
                 mec="k", mew=0.5, zorder=4)
-        ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls=":", lw=1.9, color=C_PULSE,
+        ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls="-", lw=1.2, color=C_PULSE,
                 zorder=3, label=f"DM đo được = {dm_meas:.2f} pc cm$^{{-3}}$")
     ax.set_xlim(x0 - 0.01 * (x1 - x0), x1 + 0.01 * (x1 - x0))
     ax.set_ylim(y_lo, max(yhi + 0.10 * max(yhi - ylo, 1e-9),
@@ -506,13 +539,12 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
     y = np.asarray(prof, float)
     ax.plot(t, y, lw=1.1, color=C_FIT, label="chuỗi đã khử tán sắc")
     first = None
+    # KHÔNG vẽ đường dọc cho từng xung: số liệu (t, SNR) nằm ở chú giải, còn
+    # đỉnh được đánh dấu bằng ▽ ở khối "peaks" bên dưới → hình sạch, không
+    # trùng với nét đứt dùng cho giá trị tham chiếu ở các panel khác.
     for i, p in enumerate(peaks):
-        tp = p["t_s"] * 1e3
-        lbl = (f"xung {i+1}: t = {tp:.1f} ms, SNR = {p['snr']:.0f}"
-               if i == 0 else f"xung {i+1}: t = {tp:.1f} ms")
-        ax.axvline(tp, color=C_PULSE, ls="--", lw=1.0, zorder=2, label=lbl)
         if i == 0:
-            first = (tp, p)
+            first = (p["t_s"] * 1e3, p)
     ymax = float(np.max(y))
     ymin = float(np.min(y))
     span = max(ymax - ymin, 1e-9)
@@ -530,16 +562,20 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
         # sang mẫu bên cạnh — tránh hiểu nhầm "xung ở chỗ khác"
         t_ap = float(tp)
         y_ap = float(np.interp(t_ap, t, y))
-        # KHOẢNG HỞ nhỏ giữa đỉnh xung và chân cột mốc để tam giác không
-        # chạm vào đường dữ liệu (trước đây cột mốc bắt đầu đúng tại đỉnh).
-        gap = 0.055 * span
-        stem = 0.10 * span
-        ax.vlines(t_ap, y_ap + gap, y_ap + gap + stem,
-                  color=C_PULSE, lw=0.9, zorder=6)
-        ax.plot([t_ap], [y_ap + gap + stem], "v", color=C_PULSE, ms=8, mew=0.6,
-                mec="k", zorder=7, label="_nolegend_")
+        # Chỉ MỘT dấu ▽ nằm ngay trên đỉnh, cách đỉnh một khoảng hở nhỏ:
+        # không cột mốc, không đường dọc (cột mốc cũ vừa che dữ liệu vừa trùng
+        # với nét đứt của giá trị tham chiếu nếu có).
+        gap = 0.05 * span
+        ax.plot([t_ap], [y_ap + gap], MK_PEAK, color=C_PULSE, ms=9,
+                mew=0.0, zorder=7, label="_nolegend_")
+        # Dải W50 (±W50/2 quanh đỉnh) — cách thể hiện bề rộng theo lối bài báo
+        _w50 = metrics.get("w50_ms")
+        if _w50:
+            ax.axvspan(t_ap - _w50 / 2.0, t_ap + _w50 / 2.0,
+                       color=C_REF, alpha=0.18, lw=0, zorder=1,
+                       label=f"W50 = {_w50:.1f} ms")
         ax.set_ylim(ymin - 0.10 * span,
-                    max(ymax + 0.22 * span, y_ap + gap + 2.4 * stem))
+                    max(ymax + 0.22 * span, y_ap + gap + 0.16 * span))
     leg = place_legend(ax)
     if metrics.get("w50_ms"):
         ax.set_title(title + f" — W50 (hồ sơ) = {metrics['w50_ms']:.1f} ms")
@@ -563,7 +599,7 @@ def plot_subband_lags(f_mhz, lags_ms, dm_fit, dm_err, ax=None,
         _, ax = plt.subplots(figsize=(7.2, 3.2))
     f = np.asarray(f_mhz, float)
     lags = np.asarray(lags_ms, float)
-    ax.plot(f, lags, "o", color=C_FIT, ms=5.5,
+    ax.plot(f, lags, MK_MEAS, color=C_FIT, ms=5.5,
             label="trọng tâm xung đo được (dải con)")
     f_lo, f_hi = float(f.min()), float(f.max())
     xx = np.linspace(f_lo, f_hi, 200)
@@ -572,6 +608,11 @@ def plot_subband_lags(f_mhz, lags_ms, dm_fit, dm_err, ax=None,
     yy = K * dm_fit * (1.0 / xx**2 - 1.0 / f_ref**2) * 1e3
     ax.plot(xx, yy, "-", color=C_PULSE, lw=1.4,
             label=f"khớp: DM = {dm_fit:.2f} ± {dm_err:.2f} pc cm$^{{-3}}$")
+    if dm_err and dm_err > 0:            # dải ±1σ quanh đường khớp
+        yy_lo = K * (dm_fit - dm_err) * (1.0 / xx**2 - 1.0 / f_ref**2) * 1e3
+        yy_hi = K * (dm_fit + dm_err) * (1.0 / xx**2 - 1.0 / f_ref**2) * 1e3
+        ax.fill_between(xx, yy_lo, yy_hi, color=C_PULSE, alpha=0.18, lw=0,
+                        label="±1σ")
     ax.set_xlim(f_lo - 0.01 * (f_hi - f_lo), f_hi + 0.01 * (f_hi - f_lo))
     ax.margins(y=0.10)
     ax.set_xlabel("tần số trung bình dải con (MHz)")

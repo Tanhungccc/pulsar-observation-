@@ -388,8 +388,10 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         return m
 
     # ---------------- A1: flag kênh + bandpass
-    good = mask_bad_channels(dyn.astype(np.float64), sigma=5.0)
-    dyn_n = bandpass_normalize(dyn[good].astype(np.float64))
+    # float32 là đủ cho chuẩn hoá bandpass (median/percentile) và tránh 2 bản
+    # sao float64 của cả mảng (file 600 MB → tiết kiệm ~2,4 GB đỉnh RAM)
+    good = mask_bad_channels(dyn.astype(np.float32, copy=False), sigma=5.0)
+    dyn_n = bandpass_normalize(dyn[good].astype(np.float32, copy=False))
     f_g = freqs[good]
     m["stage"]["channels_kept"] = int(good.sum())
     m["stage"]["channels_flagged"] = int((~good).sum())
@@ -499,6 +501,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
           f"(W={w50_est_ms:.1f} ms, {delay_per_dm_ms*1e3:.1f} µs/DM)")
 
     # ---------------- A7: khử tán sắc + tìm xung
+    # dyn_rb đã là float32 (rebin theo khối) → dedisperse giữ float32
     s_dd, dropped = dedisperse(dyn_rb, f_rb, dm_best, tsamp)
     pulses = [] if zero_dm_dominated else find_pulses(
         s_dd, tsamp, threshold=pulse_thresh,
@@ -767,7 +770,11 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                      dm_meas=dm_best if _detected else None, dm_true=dm_ref,
                      ax=ax[0, 1], title=_scan_title, threshold=pulse_thresh)
     prof_show = s_dd - np.median(s_dd)
-    met = {"width_ms": pulses_ok[0]["width_ms"] if pulses_ok else None}
+    met = {"width_ms": pulses_ok[0]["width_ms"] if pulses_ok else None,
+           "w50_ms": pulses_ok[0].get("w50_ms") if pulses_ok else None,
+           "w25_ms": pulses_ok[0].get("w25_ms") if pulses_ok else None,
+           "width_samples": pulses_ok[0].get("width_samples")
+           if pulses_ok else None}
     # panel (c): CẬN CẢNH quanh xung (trước đây vẽ cả chuỗi nhưng lại ghi
     # "vùng xung" — sai mô tả và chú thích tràn khung)
     if pulses_ok:
