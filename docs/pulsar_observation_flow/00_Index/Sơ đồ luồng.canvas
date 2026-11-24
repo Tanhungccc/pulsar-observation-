@@ -1,0 +1,22 @@
+{
+  "nodes": [
+    {"id": "n1", "type": "text", "x": 0, "y": 0, "width": 260, "height": 110, "color": "4", "text": "**Thu dữ liệu**\nRTP-3.7 + receiver\n[[RTP-3.7 POAM]]"},
+    {"id": "n2", "type": "text", "x": 320, "y": 0, "width": 260, "height": 110, "color": "5", "text": "**Kiểm tra đầu vào**\nNaN, kênh nóng, provenance\n[[Quy tắc cho Agent]]"},
+    {"id": "n3", "type": "text", "x": 640, "y": 0, "width": 260, "height": 110, "color": "5", "text": "**Veto zero-DM**\nRFI nội địa ở DM≈0\n[[Pipeline phát hiện pulsar]]"},
+    {"id": "n4", "type": "text", "x": 960, "y": 0, "width": 260, "height": 110, "color": "5", "text": "**Quét DM**\nboxcar hoặc fold tại P\n[[Pipeline phát hiện pulsar]]"},
+    {"id": "n5", "type": "text", "x": 960, "y": 170, "width": 260, "height": 110, "color": "5", "text": "**Lọc ứng viên**\nngưỡng σ, nhất quán DM và pha\n[[Pipeline phát hiện pulsar]]"},
+    {"id": "n6", "type": "text", "x": 640, "y": 170, "width": 260, "height": 110, "color": "5", "text": "**Đo DM subband**\nTheil–Sen + jackknife\n[[B0329+54 — mẫu kiểm chứng]]"},
+    {"id": "n7", "type": "text", "x": 320, "y": 170, "width": 260, "height": 110, "color": "3", "text": "**Hình + metrics**\nPNG/SVG, JSON, báo cáo\n[[Quy ước hình vẽ]]"},
+    {"id": "n8", "type": "text", "x": 0, "y": 170, "width": 260, "height": 110, "color": "6", "text": "**Kết luận**\nchỉ nêu số có nguồn\n[[Trạng thái hiện tại]]"},
+    {"id": "n9", "type": "text", "x": 320, "y": 340, "width": 580, "height": 110, "color": "1", "text": "**Ràng buộc**\n`AstroStack` không được chạm · `data/` chỉ đọc · `results/` ghi theo thư mục con\n[[Quy tắc cho Agent]]"}
+  ],
+  "edges": [
+    {"id": "e1", "fromNode": "n1", "fromSide": "right", "toNode": "n2", "toSide": "left"},
+    {"id": "e2", "fromNode": "n2", "fromSide": "right", "toNode": "n3", "toSide": "left"},
+    {"id": "e3", "fromNode": "n3", "fromSide": "right", "toNode": "n4", "toSide": "left"},
+    {"id": "e4", "fromNode": "n4", "fromSide": "bottom", "toNode": "n5", "toSide": "top"},
+    {"id": "e5", "fromNode": "n5", "fromSide": "left", "toNode": "n6", "toSide": "right"},
+    {"id": "e6", "fromNode": "n6", "fromSide": "left", "toNode": "n7", "toSide": "right"},
+    {"id": "e7", "fromNode": "n7", "fromSide": "left", "toNode": "n8", "toSide": "right"}
+  ]
+}

@@ -139,6 +139,8 @@ def draw_panel(data: dict, fig, which: str = "a", pp=None):
                     ha="center", va="center", fontsize=10, color="0.35",
                     transform=ax.transAxes)
             ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xlabel("tần số trung bình dải con (MHz)")
+            ax.set_ylabel("trễ so với dải cao nhất (ms)")
             ax.set_title("(d) Trễ dải con — không áp dụng")
     try:
         fig.tight_layout()

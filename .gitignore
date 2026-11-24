@@ -42,3 +42,7 @@ targets_user.json
 
 # cấu hình người dùng (nơi lưu)
 settings.json
+
+# cấu hình Obsidian cá nhân của vault
+pulsar_observation_flow/.obsidian/
+docs/pulsar_observation_flow/.obsidian/

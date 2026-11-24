@@ -948,6 +948,27 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                 provenance=_prov)
         except Exception as _re:            # noqa: BLE001 — PNG vẫn là chính
             print(f"   (không cache dữ liệu vẽ: {_re!r})")
+    # bbox từng panel đo THẬT trên renderer → preview A/B/C/D ở GUI cắt sát
+    # đúng 1 đồ thị con (không xén trục, không nhảy lề suptitle) cho chạy cũ.
+    try:
+        fig.canvas.draw()
+        _rend = fig.canvas.get_renderer()
+        _fw, _fh = fig.get_size_inches() * fig.dpi
+        _boxes = {}
+        for _key, _axp in zip(("a", "b", "c", "d"), ax.flat):
+            _bb = _axp.get_tightbbox(_rend)
+            if _bb is None:
+                continue
+            _boxes[_key] = [round(max(_bb.x0 / _fw, 0.0), 4),
+                            round(max(1.0 - _bb.y1 / _fh, 0.0), 4),
+                            round(min(_bb.x1 / _fw, 1.0), 4),
+                            round(min(1.0 - _bb.y0 / _fh, 1.0), 4)]
+        if _boxes:
+            guard.atomic_write_json(os.path.join(out_dir,
+                                                 "fig2_detection_panels.json"),
+                                    _boxes)
+    except Exception as _pe:             # noqa: BLE001 — preview có fallback
+        print(f"   (không ghi fig2_detection_panels.json: {_pe!r})")
     f2 = os.path.join(out_dir, "fig2_detection.png")
     _savefig(fig, f2, dpi=300)          # toàn đường/marker → 300 dpi vẫn nhẹ
     plt.close(fig)

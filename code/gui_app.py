@@ -1158,8 +1158,13 @@ class App:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         # Preview tĩnh một panel; không gắn toolbar hoặc handler zoom.
-        self.det_fig = Figure(figsize=(9, 5.2))
+        self.det_fig = Figure(figsize=(9, 5.2), facecolor=self.pal["surface"])
         self.det_canvas = FigureCanvasTkAgg(self.det_fig, master=vf)
+        try:
+            self.det_canvas.get_tk_widget().configure(
+                background=self.pal["surface"], highlightthickness=0)
+        except tk.TclError:
+            pass
         self._fig_hint = ttk.Label(vf, style="Muted.TLabel", text="")
         self._fig_hint.pack(side="bottom", anchor="w", padx=8)
         self._set_fig_hint("idle")
@@ -1848,6 +1853,9 @@ class App:
             nchan_iq = 256
 
         self._last_metrics = None
+        # reset khung xem: về panel A của hình mới (hết trạng thái zoom/crop cũ)
+        self.fig_panel.set("a")
+        self._sync_panel_buttons()
 
         want_search = bool(getattr(self, "det_search", None)
                            and self.det_search.get())
@@ -2014,18 +2022,39 @@ class App:
     }
 
     def select_panel(self, key: str) -> None:
-        """Chọn một trong bốn panel để preview."""
+        """Chọn panel A–D; nút chỉ hợp lệ với fig2_detection.png.
+
+        Nếu ô Hình: đang chọn fig1_overview.png (2 hàng) hay ảnh khác thì tự
+        chuyển sang fig2_detection.png CỦA LẦN CHẠY ĐÓ; lần chạy không có
+        fig2 thì báo rõ và giữ nguyên hình đang xem (không cắt tứ phân vị oan).
+        """
         if key not in {"a", "b", "c", "d"}:
             return
+        name = (self.det_figpick.get() or "").replace("\\", "/")
+        if os.path.basename(name) != "fig2_detection.png":
+            run_dir = os.path.dirname(name)
+            cand = (f"{run_dir}/fig2_detection.png" if run_dir
+                    else "fig2_detection.png")
+            if cand in (self.det_figpick.cget("values") or []) or                     os.path.exists(os.path.join(RESULTS_DIR, cand)):
+                self.det_figpick.set(cand)
+            else:
+                self.log(L.t("Lần chạy này không có fig2_detection.png — "
+                             "các nút A–D chỉ áp dụng cho fig2. "
+                             "Xem toàn hình bằng trình xem ảnh."), "warn")
+                return
         self.fig_panel.set(key)
         self._sync_panel_buttons()
         self.show_selected_figure()
 
     def _sync_panel_buttons(self) -> None:
         current = getattr(self, "fig_panel", tk.StringVar(value="a")).get()
+        name = (self.det_figpick.get() if getattr(self, "det_figpick", None)
+                else "") or ""
+        is_fig2 = os.path.basename(name.replace("\\", "/")) == "fig2_detection.png"
         for key, button in getattr(self, "_panel_btns", {}).items():
             try:
-                button.configure(style="NavSel.TButton" if key == current
+                button.configure(style="NavSel.TButton"
+                                 if (is_fig2 and key == current)
                                  else "Ghost.TButton")
             except tk.TclError:
                 pass
@@ -2058,6 +2087,35 @@ class App:
         except Exception:                 # noqa: BLE001
             pass
 
+    _FALLBACK_CROPS = {      # 2×2 KHÔNG có fig2_detection_panels.json (chạy cũ)
+        "a": (0.02, 0.065, 0.50, 0.505), "b": (0.50, 0.065, 0.985, 0.505),
+        "c": (0.02, 0.505, 0.50, 0.998), "d": (0.50, 0.505, 0.985, 0.998)}
+
+    def _crop_for_raster(self, name_rel: str, stem: str) -> tuple:
+        """Khung cắt (x0, y0, x1, y1 — y tính từ TRÊN) theo tỉ lệ ảnh.
+
+        Ưu tiên <stem>_panels.json ghi kèm lần chạy (bbox đo thật trên
+        renderer — không xén trục, không giữ lề suptitle); thiếu thì dùng
+        khung tứ phân vị đã gọt lề cho hình 2×2; hình khác (fig1_overview…)
+        → NGUYÊN KHUNG, contain-fit.
+        """
+        run_dir = os.path.dirname(name_rel.replace("/", os.sep))
+        jp = os.path.join(RESULTS_DIR, run_dir, f"{stem}_panels.json")
+        key = self.fig_panel.get()
+        if os.path.exists(jp):
+            try:
+                import json as _json
+                with open(jp, encoding="utf-8") as fh:
+                    boxes = _json.load(fh)
+                if key in boxes:
+                    x0, y0, x1, y1 = boxes[key]
+                    return (float(x0), float(y0), float(x1), float(y1))
+            except Exception:                 # noqa: BLE001
+                pass
+        if stem == "fig2_detection":
+            return self._FALLBACK_CROPS.get(key, self._FALLBACK_CROPS["a"])
+        return (0.0, 0.0, 1.0, 1.0)
+
     def show_selected_figure(self, event=None):
         """Hiển thị preview một panel; không có cơ chế zoom trong ứng dụng."""
         name = self.det_figpick.get()
@@ -2077,21 +2135,24 @@ class App:
                 self._fig_aspect = float(getattr(psr_render, "PANEL_ASPECT",
                                                  {}).get(_key, 9.0 / 5.2))
                 psr_render.draw_panel(_rd, self.det_fig, which=_key)
+                self.det_fig.patch.set_facecolor(self.pal["surface"])
                 self._fit_fig_canvas()
                 self.det_canvas.draw_idle()
                 self._fig_mode = "vector"
                 self._set_fig_hint("vector")
                 return
-            # Preview old runs as the selected panel crop from the saved figure.
+            # Preview chạy cũ: cắt panel từ PNG đã lưu theo bbox ĐO THẬT
+            # (fig2_detection_panels.json) hoặc khung đã bỏ lề suptitle;
+            # hình khác (fig1_overview 2 hàng…) hiển thị NGUYÊN KHUNG.
             import matplotlib.image as mpimg
             self.det_fig.clear()
+            self.det_fig.patch.set_facecolor(self.pal["surface"])
             ax = self.det_fig.add_subplot(111)
             img = mpimg.imread(path)
             h, w = img.shape[:2]
-            crops = {"a": (0.0, 0.0, 0.5, 0.5), "b": (0.5, 0.0, 1.0, 0.5),
-                     "c": (0.0, 0.5, 0.5, 1.0), "d": (0.5, 0.5, 1.0, 1.0)}
-            x0, y0, x1, y1 = crops.get(self.fig_panel.get(), crops["a"])
-            _crop = img[int(y0*h):int(y1*h), int(x0*w):int(x1*w)]
+            x0, y0, x1, y1 = self._crop_for_raster(name, os.path.basename(name))
+            _crop = img[int(y0*h):max(int(y1*h), int(y0*h) + 1),
+                        int(x0*w):max(int(x1*w), int(x0*w) + 1)]
             self._fig_aspect = (_crop.shape[1] / max(_crop.shape[0], 1)
                                 if _crop.size else 9.0 / 5.2)
             ax.imshow(_crop, aspect="equal")
