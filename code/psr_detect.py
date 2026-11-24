@@ -948,8 +948,11 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                 provenance=_prov)
         except Exception as _re:            # noqa: BLE001 — PNG vẫn là chính
             print(f"   (không cache dữ liệu vẽ: {_re!r})")
-    # bbox từng panel đo THẬT trên renderer → preview A/B/C/D ở GUI cắt sát
-    # đúng 1 đồ thị con (không xén trục, không nhảy lề suptitle) cho chạy cũ.
+    # bbox từng panel đo THẬT trên renderer. Dùng để: (1) xuất TỪNG PANEL
+    # thành file riêng fig2_panel_<key>.png — khung xem của GUI nạp thẳng file
+    # thay vì cắt runtime từ ảnh ghép 4-in-1 (nguồn của mọi lỗi "cắt oan
+    # trục/nhãn"); (2) fallback crop cho chạy cũ thiếu file panel.
+    _boxes = {}
     try:
         fig.canvas.draw()
         _rend = fig.canvas.get_renderer()
@@ -972,6 +975,22 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     f2 = os.path.join(out_dir, "fig2_detection.png")
     _savefig(fig, f2, dpi=300)          # toàn đường/marker → 300 dpi vẫn nhẹ
     plt.close(fig)
+    # ---- xuất 4 file panel riêng (cắt bằng bbox đã đo, đệm 0,4 % mỗi cạnh)
+    if _boxes:
+        try:
+            import matplotlib.image as _mimg
+            _big = _mimg.imread(f2)
+            _H, _W = _big.shape[:2]
+            _pad = 0.004
+            for _key, (_bx0, _by0, _bx1, _by1) in _boxes.items():
+                _mx0, _my0 = max(_bx0 - _pad, 0.0), max(_by0 - _pad, 0.0)
+                _mx1, _my1 = min(_bx1 + _pad, 1.0), min(_by1 + _pad, 1.0)
+                _mimg.imsave(
+                    os.path.join(out_dir, f"fig2_panel_{_key}.png"),
+                    _big[int(_my0 * _H):int(_my1 * _H),
+                         int(_mx0 * _W):int(_mx1 * _W)])
+        except Exception as _pe2:        # noqa: BLE001 — còn fallback crop
+            print(f"   (không xuất fig2_panel_*.png: {_pe2!r})")
 
     m["files"] = [os.path.basename(f1), os.path.basename(f2)]
     # ---- M3: hình dò chu kỳ mù (nếu có ứng viên)

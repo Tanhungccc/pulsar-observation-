@@ -1165,6 +1165,11 @@ class App:
                 background=self.pal["surface"], highlightthickness=0)
         except tk.TclError:
             pass
+        # Bề mặt RASTER: Label + PhotoImage thuần Tk (KHÔNG matplotlib) —
+        # hết vòng resize/aspect của TkAgg từng gây cắt trục / hồ vẽ cũ.
+        self._fig_img = None
+        self._fig_img_lbl = tk.Label(vf, background=self.pal["surface"],
+                                     anchor="nw")
         self._fig_hint = ttk.Label(vf, style="Muted.TLabel", text="")
         self._fig_hint.pack(side="bottom", anchor="w", padx=8)
         self._set_fig_hint("idle")
@@ -2008,8 +2013,11 @@ class App:
             for d in sorted(os.listdir(RESULTS_DIR)):
                 sub = os.path.join(RESULTS_DIR, d)
                 if os.path.isdir(sub):
+                    # fig2_panel_*.png là file nội bộ của khung xem A–D,
+                    # không đưa vào dropdown (tránh nhiễu 4 mục mỗi lần chạy).
                     figs += [f"{d}/{f}" for f in sorted(os.listdir(sub))
-                             if f.endswith(".png")]
+                             if f.endswith(".png")
+                             and not f.startswith("fig2_panel_")]
             # ảnh cũ nằm rời trong results/ (bản trước) vẫn hiện được
             figs += sorted(f for f in os.listdir(RESULTS_DIR)
                            if f.endswith(".png"))
@@ -2034,6 +2042,7 @@ class App:
                     fontsize=11, color="0.45", transform=ax.transAxes)
             ax.set_axis_off()
             self._fig_aspect = 9.0 / 5.2
+            self._show_fig_surface(vector=True)
             self._fit_fig_canvas()
             self.det_canvas.draw()
             self._fig_mode = "idle"
@@ -2061,6 +2070,7 @@ class App:
                 self.log(L.t("Lần chạy này không có fig2_detection.png — "
                              "các nút A–D chỉ áp dụng cho fig2. "
                              "Xem toàn hình bằng trình xem ảnh."), "warn")
+                self._sync_panel_buttons()   # xoá highlight cũ của lần trước
                 return
         self.fig_panel.set(key)
         self._sync_panel_buttons()
@@ -2138,13 +2148,33 @@ class App:
                 with open(jp, encoding="utf-8") as fh:
                     boxes = _json.load(fh)
                 if key in boxes:
-                    x0, y0, x1, y1 = boxes[key]
-                    return (float(x0), float(y0), float(x1), float(y1))
+                    x0, y0, x1, y1 = (float(v) for v in boxes[key])
+                    # đệm 0,4 % mỗi cạnh: bbox tightbbox sát nốt glyph cuối
+                    # (đã gặp: ký tự đầu nhãn trục Y bị chạm mép crop oan).
+                    # Khoảng hở giữa 2 panel ≥ 0,87 % nên đệm không ăn sang panel kế.
+                    _p = 0.004
+                    return (max(x0 - _p, 0.0), max(y0 - _p, 0.0),
+                            min(x1 + _p, 1.0), min(y1 + _p, 1.0))
             except Exception:                 # noqa: BLE001
                 pass
         if stem == "fig2_detection":
             return self._FALLBACK_CROPS.get(key, self._FALLBACK_CROPS["a"])
         return (0.0, 0.0, 1.0, 1.0)
+
+    def _show_fig_surface(self, vector: bool) -> None:
+        """Chọn bề mặt hiển thị: canvas TkAgg (vector) hay Label ảnh (raster)."""
+        try:
+            w = self.det_canvas.get_tk_widget()
+            if vector:
+                self._fig_img_lbl.pack_forget()
+                if not w.winfo_ismapped():
+                    w.pack(fill="x", before=self._fig_hint)
+            else:
+                w.pack_forget()
+                if not self._fig_img_lbl.winfo_ismapped():
+                    self._fig_img_lbl.pack(fill="x", before=self._fig_hint)
+        except Exception:                 # noqa: BLE001
+            pass
 
     def show_selected_figure(self, event=None):
         """Hiển thị preview một panel; không có cơ chế zoom trong ứng dụng."""
@@ -2166,31 +2196,48 @@ class App:
                                                  {}).get(_key, 9.0 / 5.2))
                 psr_render.draw_panel(_rd, self.det_fig, which=_key)
                 self.det_fig.patch.set_facecolor(self.pal["surface"])
+                self._show_fig_surface(vector=True)
                 self._fit_fig_canvas()
                 self.det_canvas.draw()
                 self._fig_mode = "vector"
                 self._set_fig_hint("vector")
                 return
-            # Preview chạy cũ: cắt panel từ PNG đã lưu theo bbox ĐO THẬT
-            # (fig2_detection_panels.json) hoặc khung đã bỏ lề suptitle;
-            # hình khác (fig1_overview 2 hàng…) hiển thị NGUYÊN KHUNG.
-            import matplotlib.image as mpimg
-            self.det_fig.clear()
-            self.det_fig.patch.set_facecolor(self.pal["surface"])
-            ax = self.det_fig.add_subplot(111)
-            img = mpimg.imread(path)
-            h, w = img.shape[:2]
+            # Ảnh raster bằng TK THUẦN (Label + PhotoImage, scale contain-fit
+            # theo cả 2 chiều) — KHÔNG qua matplotlib nên không còn vòng
+            # resize TkAgg từng gây cắt trục X/Y, hình méo, hồ vẽ cũ.
+            # Ưu tiên file panel riêng fig2_panel_<key>.png (chạy mới xuất
+            # sẵn); chạy cũ → cắt từ fig2 ghép theo bbox JSON/fallback; hình
+            # khác (fig1_overview 2 hàng…) hiển thị nguyên khung.
+            from PIL import Image, ImageTk
             _stem0 = os.path.splitext(os.path.basename(name))[0]
-            x0, y0, x1, y1 = self._crop_for_raster(name, _stem0)
-            _crop = img[int(y0*h):max(int(y1*h), int(y0*h) + 1),
-                        int(x0*w):max(int(x1*w), int(x0*w) + 1)]
-            self._fig_aspect = (_crop.shape[1] / max(_crop.shape[0], 1)
-                                if _crop.size else 9.0 / 5.2)
-            ax.imshow(_crop, aspect="equal")
-            ax.set_axis_off()
-            self.det_fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-            self._fit_fig_canvas()
-            self.det_canvas.draw()
+            _panel_png = None
+            if _stem0 == "fig2_detection":
+                _pp = os.path.join(RESULTS_DIR,
+                                   os.path.dirname(name.replace("/", os.sep)),
+                                   f"fig2_panel_{self.fig_panel.get()}.png")
+                if os.path.exists(_pp):
+                    _panel_png = _pp
+            im = Image.open(_panel_png or path).convert("RGB")
+            if _panel_png is None and _stem0 == "fig2_detection":
+                _W, _H = im.size
+                _cx0, _cy0, _cx1, _cy1 = self._crop_for_raster(name, _stem0)
+                im = im.crop((int(_cx0 * _W), int(_cy0 * _H),
+                              max(int(_cx1 * _W), int(_cx0 * _W) + 1),
+                              max(int(_cy1 * _H), int(_cy0 * _H) + 1)))
+            _pw = max(self._fig_host.winfo_width(), 240)
+            try:
+                _nbh = self.nb.winfo_height()
+            except Exception:                 # noqa: BLE001
+                _nbh = 0
+            _ph = (max(_nbh - 170, 240) if _nbh > 420
+                   else max(self._fig_host.winfo_height(), 160))
+            _sc = max(min(_pw / max(im.width, 1), _ph / max(im.height, 1)),
+                      0.05)
+            im2 = im.resize((max(1, int(im.width * _sc)),
+                             max(1, int(im.height * _sc))), Image.LANCZOS)
+            self._fig_img = ImageTk.PhotoImage(im2)      # giữ tham chiếu
+            self._fig_img_lbl.configure(image=self._fig_img)
+            self._show_fig_surface(vector=False)
             self._fig_mode = "raster"
             self._set_fig_hint("raster")
         except Exception as e:

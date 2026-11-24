@@ -214,9 +214,13 @@ def main(fast=False):
         f"{len(vals)} ảnh, ví dụ {vals[-1] if vals else '—'}")
     app.show_selected_figure()
     root.update()
+    _mode = getattr(app, "_fig_mode", "vector")
+    _surf = (len(app.det_fig.axes) > 0 and app.det_canvas.get_tk_widget().winfo_exists()
+             if _mode == "vector"
+             else getattr(app, "_fig_img", None) is not None)
     chk("biểu đồ preview vẽ được vào khung xem",
-        len(app.det_fig.axes) > 0 and app.det_canvas.get_tk_widget().winfo_exists(),
-        f"{len(app.det_fig.axes)} trục ảnh")
+        _surf, f"mode={_mode} · trục={len(app.det_fig.axes)} · "
+               f"ảnh={'có' if getattr(app, '_fig_img', None) else 'không'}")
     chk("preview mặc định một panel, không gắn zoom/slider/toolbar",
         app.fig_panel.get() in {"a", "b", "c", "d"}
         and getattr(app, "det_zoom", None) is None
