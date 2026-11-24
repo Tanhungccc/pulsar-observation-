@@ -308,9 +308,38 @@ def audit_core():
         abs(p_b - P) / P < 1e-4, f"{1e6*(p_b-P)/P:+.1f} ppm, SNR {snr_b:.1f}")
     # 4) profile_snr: nhiễu thuần cho SNR thấp
     nz = np.random.default_rng(7).normal(0, 1, 4000)
-    pn, _ = C.fold(nz, ts, P, nbins=128)
-    chk("profile_snr nhiễu thuần < 6σ", C.profile_snr(pn)[0] < 6.0,
-        f"{C.profile_snr(pn)[0]:.2f}σ")
+    pn, cn = C.fold(nz, ts, P, nbins=128)
+    chk("profile_snr nhiễu thuần < 6σ", C.profile_snr(pn, counts=cn)[0] < 6.0,
+        f"{C.profile_snr(pn, counts=cn)[0]:.2f}σ")
+    # 4b) CHỐNG SUY BIẾN MẪU SỐ (lỗi đã gặp: SNR 3,5e12σ trên tệp 1 xung)
+    # hồ sơ răng lược: 1 xung, phần lớn bin trống (=0) → MAD sụp về 0
+    comb = np.zeros(256)
+    comb[[10, 60, 110, 160, 210]] = 5.0
+    cnt_c = np.zeros(256)
+    cnt_c[[10, 60, 110, 160, 210]] = 1.0
+    s_cb, w_cb, ph_cb, info_cb = C.profile_snr(comb, counts=cnt_c,
+                                               return_info=True)
+    chk("profile_snr: hồ sơ răng lược → SNR hữu hạn (< 1e3), không 1e12",
+        np.isfinite(s_cb) and s_cb < 1e3, f"{s_cb:.3g}σ")
+    chk("profile_snr: báo degenerate khi MAD sụp", info_cb["degenerate"] is True,
+        str(info_cb))
+    chk("profile_snr: đếm đúng số bin có mẫu", info_cb["n_filled"] == 5,
+        str(info_cb["n_filled"]))
+    # quá ít bin có mẫu (< 8) → coi như không ước lượng được nền
+    tin = np.zeros(256)
+    tin[3] = 9.0
+    cnt_1 = np.zeros(256)
+    cnt_1[3] = 1.0
+    s_1, _, _, i_1 = C.profile_snr(tin, counts=cnt_1, return_info=True)
+    chk("profile_snr: 1 bin có mẫu → SNR = 0 (từ chối, không bịa số)",
+        s_1 == 0.0 and i_1["degenerate"], f"{s_1}, {i_1}")
+    # dữ liệu thật: SNR không được đổi khi MAD hợp lệ (hồi quy)
+    prof_ok, cnt_ok = C.fold(xl, ts, P, nbins=256)
+    s_new = C.profile_snr(prof_ok, counts=cnt_ok)[0]
+    s_old = C.profile_snr(prof_ok)[0]
+    chk("profile_snr: hồ sơ đủ mẫu → SNR không đổi vì chốt chặn mới",
+        abs(s_new - s_old) <= max(0.02 * s_old, 0.05),
+        f"mới {s_new:.3f} · cũ {s_old:.3f}")
     # 5) fft_search: tìm đúng tần số tiêm
     f_inj = 4.0
     xx = np.sin(2 * np.pi * f_inj * tt) + np.random.default_rng(8).normal(0, 1, n)
@@ -344,6 +373,24 @@ def audit_period():
     chk("chu kỳ phi lý bị chặn (không có ứng viên P > T/5)",
         all(c["p_s"] <= 120.0 / 5.0 * 1.05 for c in (res.get("candidates") or [])),
         f"{len(res.get('candidates') or [])} ứng viên")
+    # CHỐT CHẶN TỆP QUÁ NGẮN: 1 xung khổng lồ trong 0,2 s → không được fold ra
+    # SNR phi lý; phải trả fold_note và best=None (lỗi đã gặp: 3,5e12σ)
+    ts_c = 2.05e-4
+    x_c = np.zeros(976)
+    x_c[130:134] = [1.0, 40.0, 30.0, 5.0]          # đúng 1 giant pulse
+    rc = P.blind_period_search(x_c, ts_c, fmin_hz=1.0, fmax_hz=200.0, top=8)
+    chk("tệp 1 xung ngắn: best=None (không khẳng định chu kỳ)",
+        rc.get("best") is None, str(rc.get("best")))
+    chk("tệp 1 xung ngắn: có fold_note giải thích vì sao",
+        bool(rc.get("fold_note")) and "gập" in (rc.get("fold_note") or ""),
+        (rc.get("fold_note") or "—")[:70])
+    chk("tệp 1 xung ngắn: không có ứng viên SNR > 1e3",
+        all(c["snr"] < 1e3 for c in (rc.get("candidates") or [])),
+        f"max = {max([c['snr'] for c in (rc.get('candidates') or [])] or [0]):.3g}")
+    # SNR của hồ sơ đủ mẫu phải giữ nguyên bản chất √T (hồi quy)
+    chk("hồ sơ đủ mẫu: fold_note = None khi dữ liệu tốt",
+        (res.get("fold_note") is None) or ("ngưỡng" in (res.get("fold_note") or "")),
+        str(res.get("fold_note"))[:60])
 
 
 # ---------------------------------------------------------------- psr_detect

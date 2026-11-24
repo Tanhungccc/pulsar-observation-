@@ -239,8 +239,8 @@ def fold_search_period(series, tsamp_s: float, period_grid, nbins: int = 128):
     """Fold thử nhiều chu kỳ (khi chưa biết P chính xác) → SNR tốt nhất."""
     best = (-1e9, None, None)
     for p in np.atleast_1d(period_grid):
-        prof, _ = fold(series, tsamp_s, p, nbins=nbins)
-        s = profile_snr(prof)[0]
+        prof, cnt = fold(series, tsamp_s, p, nbins=nbins)
+        s = profile_snr(prof, counts=cnt)[0]
         if s > best[0]:
             best = (s, p, prof)
     return best
@@ -271,8 +271,8 @@ def refine_period(series, tsamp_s: float, period0: float,
         grid = f0 + np.linspace(-dspan, dspan, nstep)
         for f in grid:
             p = 1.0 / f
-            prof, _ = fold(x, tsamp_s, p, nbins=nbins)
-            s = profile_snr(prof)[0]
+            prof, cnt = fold(x, tsamp_s, p, nbins=nbins)
+            s = profile_snr(prof, counts=cnt)[0]
             if s > best_s:
                 best_s, best_p, best_prof = s, p, prof
         f0 = 1.0 / best_p
@@ -281,31 +281,75 @@ def refine_period(series, tsamp_s: float, period0: float,
 
 
 # ------------------------------------------------------------- E: SNR (A10)
-def profile_snr(prof, widths=(1, 2, 3, 4, 6, 8, 12, 16, 24, 32)):
+def profile_snr(prof, widths=(1, 2, 3, 4, 6, 8, 12, 16, 24, 32),
+                counts=None, return_info: bool = False):
     """A10 — SNR của hồ sơ xung bằng lọc khớp boxcar tối ưu trên mọi độ rộng.
 
     Cửa sổ là VÒNG (circular): xung có thể nằm vắt qua pha 0..1. Nếu dùng
     cumsum thẳng, xung ở biên bị chia đôi và SNR tụt ~2 lần — lỗi rất dễ mắc.
 
-    Trả về (snr, width_bins, phase_peak).
+    CHỐNG SUY BIẾN MẪU SỐ (đã gặp: SNR giả 3,5e12σ trên tệp 1 xung):
+      · `fold()` đổ 0 vào bin KHÔNG có mẫu. Nếu chu kỳ thử dài hơn lượng mẫu
+        (ví dụ 325 mẫu fold 256 bin tại P = 11,7 ms → chỉ ~19 bin có dữ liệu),
+        MAD của hồ sơ = 0 đúng → mẫu số 1e-12 → SNR bùng nổ vô nghĩa.
+      ⇒ ước lượng nền CHỈ trên bin có mẫu (`counts`), và nếu MAD vẫn suy biến
+        thì dùng độ lệch chuẩn; cuối cùng đặt SÀN theo thang dữ liệu.
+      ⇒ chuẩn hoá cửa sổ theo SỐ MẪU THỰC trong cửa sổ (sqrt(n_eff)), không
+        theo số bin — đúng thống kê khi bin điền không đều.
+
+    Trả về (snr, width_bins, phase_peak); nếu return_info=True thêm dict
+    {rms, n_filled, degenerate} để bên gọi cảnh báo thay vì in số phi lý.
     """
     p = np.asarray(prof, dtype=float)
-    med = np.median(p)
-    rms = 1.4826 * np.median(np.abs(p - med)) + 1e-12
+    n = p.size
+    if counts is None:
+        cnt = np.full(n, 1.0)
+        filled = np.ones(n, bool)
+    else:
+        cnt = np.asarray(counts, dtype=float)
+        filled = cnt > 0
+    if filled.sum() < 8:                     # quá ít bin có dữ liệu → vô nghĩa
+        info = dict(rms=0.0, n_filled=int(filled.sum()), degenerate=True)
+        return (0.0, 0, 0.0, info) if return_info else (0.0, 0, 0.0)
+    med = float(np.median(p[filled]))
     d = p - med
-    n = len(p)
+    dv = d[filled]
+    mad = 1.4826 * float(np.median(np.abs(dv - float(np.median(dv)))))
+    if np.isfinite(mad) and mad > 0.0:
+        rms, degenerate = mad, False         # ước lượng chuẩn (không đổi kết quả)
+    else:
+        # MAD == 0 nghĩa là > 50 % bin có giá trị NHẰN nhau (hồ sơ răng lược do
+        # tệp quá ngắn, hoặc dữ liệu hằng số). Khi đó nền KHÔNG ước lượng được
+        # bằng MAD → dùng std của phần NỀN (sigma-clip 3σ, bỏ xung).
+        m2 = float(np.median(dv))
+        s2 = float(np.std(dv))
+        for _ in range(3):
+            keep = np.abs(dv - m2) < 3.0 * max(s2, 1e-30)
+            if keep.sum() < 8:
+                break
+            m2 = float(np.median(dv[keep]))
+            s2 = float(np.std(dv[keep]))
+        rms, degenerate = s2, True
+        if not np.isfinite(rms) or rms <= 0.0:
+            info = dict(rms=0.0, n_filled=int(filled.sum()), degenerate=True)
+            return (0.0, 0, 0.0, info) if return_info else (0.0, 0.0)
     c = np.concatenate(([0.0], np.cumsum(np.concatenate((d, d)))))
     best = (0.0, 0, 0.0)
     for w in widths:
         if w > n:
             continue
         s = c[w:w + n] - c[0:n]              # tổng w bin liên tiếp, vòng
+        # Chuẩn hoá sqrt(w) — w là số BIN, vì rms ĐÃ là độ lệch chuẩn của một
+        # bin (trung bình mỗi bin). Chia theo số MẪU sẽ làm SNR tụt ~sqrt(N/bin)
+        # (đã vấp: 253 ms → 0,4σ).
         z = s / (rms * np.sqrt(w))
         k = int(np.argmax(z))
         if z[k] > best[0]:
             ph = ((k + (w - 1) / 2.0) / n) % 1.0
             best = (float(z[k]), int(w), float(ph))
-    return best
+    info = dict(rms=float(rms), n_filled=int(filled.sum()),
+                degenerate=bool(degenerate))
+    return best + (info,) if return_info else best
 
 
 def boxcar_snr(series, widths=(1, 2, 3, 4, 6, 8, 16, 32, 64), stride: int = 1):

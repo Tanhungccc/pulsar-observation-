@@ -133,6 +133,12 @@ def blind_period_search(series, tsamp_s: float, fmin_hz: float = 0.1,
     t_obs = len(x) * ts
     p_limit = t_obs / 5.0
     raw = [c for c in raw if float(c["period_s"]) <= p_limit]
+    # Ghi rõ giới hạn để báo cáo/hình KHÔNG in SNR khi phép gập vô nghĩa
+    fold_note = None
+    if t_obs < 5 * (1.0 / max(fmax, 1e-9)):
+        fold_note = ("Tệp quá ngắn để gập chu kỳ "
+                     f"(T_obs = {t_obs * 1e3:.0f} ms < 5 chu kỳ ở tần số cao "
+                     "nhất dò) — chỉ phù hợp dò xung đơn")
     fam_src = raw[:min(len(raw), 10)]
     family = expand_harmonic_family(fam_src, pmax_s=pmax_s)
     out = []
@@ -140,14 +146,37 @@ def blind_period_search(series, tsamp_s: float, fmin_hz: float = 0.1,
         try:
             p1, snr1, prof1 = refine_period(x, ts, float(c["period_s"]),
                                             nbins=nbins, iters=1, nstep=11)
+            _, cnt1 = fold(x, ts, float(p1), nbins=nbins)
             n_pk = count_profile_peaks(prof1)
+            snr_chk, _, _, info = profile_snr(prof1, counts=cnt1,
+                                              return_info=True)
         except Exception:
             continue
         if float(p1) > p_limit or float(p1) / ts < 8:
             continue
+        # LOẠI ứng viên mà phép gập không đủ mẫu nền:
+        #   · số bin có mẫu < 25 % nbins  → hồ sơ răng lược
+        #   · ước lượng nền suy biến (MAD sụp) → SNR không có ý nghĩa thống kê
+        n_fill = int(info.get("n_filled", 0))
+        # Tiêu chí Đếm mẫu trên bin: MAD cần ≥ ~5 mẫu/bin mới là ước lượng
+        # thống kê. Tệp 1 xung (325 mẫu / 101 bin ≈ 3,2 mẫu/bin) → nền không
+        # ước lượng được → phép gập vô nghĩa, phải nói rõ thay vì in SNR.
+        spb = len(x) / max(n_fill, 1)
+        undersampled = (n_fill < 0.25 * nbins) or bool(info.get("degenerate"))             or spb < 5.0
+        if undersampled:
+            if fold_note is None:
+                fold_note = (f"Tệp quá ngắn để gập chu kỳ: {len(x)} mẫu chia "
+                             f"{n_fill}/{nbins} bin có dữ liệu ≈ {spb:.1f} mẫu/bin"
+                             " (< 5) → nền không ước lượng được, SNR fold vô "
+                             "nghĩa. Dữ liệu chỉ phù hợp DÒ XUNG ĐƠN "
+                             "(1 giant pulse / dưới 5 chu kỳ).")
+            continue
+        if abs(snr_chk - float(snr1)) > max(1.0, 0.2 * abs(snr1)):
+            snr1 = snr_chk                # dùng giá trị đã chống suy biến
         score = min(float(snr1), 1e4) * (1.0 if n_pk == 1 else 0.4)
         out.append(dict(p_s=round(float(p1), 9), snr=round(float(snr1), 2),
                         score=round(score, 2), n_peaks=int(n_pk),
+                        n_filled_bins=n_fill,
                         power_ratio=round(float(c.get("power_ratio", 0)), 2),
                         p_fft_s=round(float(c["period_s"]), 6)))
     # bỏ trùng (chu kỳ gần nhau < 1 %) — giữ điểm cao hơn
@@ -171,10 +200,16 @@ def blind_period_search(series, tsamp_s: float, fmin_hz: float = 0.1,
                 best = dict(best, p_s=round(float(p_b), 9), snr=round(float(snr_b), 2))
         except Exception:
             pass
+    if best is not None and best["snr"] < threshold:
+        fold_note = (f"Không chu kỳ nào vượt ngưỡng {threshold:.0f}σ "
+                     f"(tốt nhất {best['snr']:.1f}σ tại P = "
+                     f"{best['p_s'] * 1e3:.2f} ms)")
     return dict(searched=True, tsamp_eff_s=float(ts), n_samples=int(len(x)),
                 trials=int(len(x)), fmin_hz=fmin, fmax_hz=fmax,
                 n_fft_candidates=len(raw), n_after_sift=len(fam_src),
                 threshold=threshold, n_family=len(family), candidates=out,
+                fold_note=fold_note, t_obs_s=float(t_obs),
+                n_cycles_min=5,
                 best=best if (best and best["snr"] >= threshold) else None)
 
 
@@ -204,19 +239,25 @@ def plot_period_search(res, ax=None, title="", tag=True):
     if best is not None and res.get("profile") is not None:
         prof = np.asarray(res["profile"], float)
         med = float(np.median(prof))
-        mad = 1.4826 * float(np.median(np.abs(prof - med))) + 1e-12
+        mad = 1.4826 * float(np.median(np.abs(prof - med)))
+        std = float(np.std(prof))
+        # sàn chống suy biến: MAD sụp → dùng std; vẫn 0 → dùng thang dữ liệu
+        floor = max(std, float(np.max(prof) - med)) * 1e-3
+        mad = max(mad, std if mad <= 0.05 * std else 0.0, floor, 1e-30)
         y = (prof - med) / mad
         ph = np.arange(prof.size) / prof.size
         axs[1].plot(np.r_[ph, ph + 1], np.r_[y, y], lw=1.0, color=pp.C_FIT)
         axs[1].set_xlabel("pha (chu kỳ)")
         axs[1].set_ylabel("tín hiệu (σ)")
+        _snr = float(best["snr"])
         axs[1].set_title(f"Fold tại P = {best['p_s'] * 1e3:.3f} ms · "
-                         f"SNR {best['snr']:.1f}")
+                         + (f"SNR {_snr:.1f}" if _snr < 1e4 else "SNR không xác định"))
     else:
-        axs[1].text(0.5, 0.5, "không có ứng viên vượt ngưỡng", ha="center",
-                    va="center", fontsize=9, color="0.45",
+        _note = res.get("fold_note") or "không có ứng viên vượt ngưỡng"
+        axs[1].text(0.5, 0.5, _note, ha="center", va="center", fontsize=8.5,
+                    color="0.35", wrap=True, maxwidth=0.9,
                     transform=axs[1].transAxes)
-        axs[1].set_title("Hồ sơ fold")
+        axs[1].set_title("Hồ sơ fold — không đủ cơ sở để gập")
     if tag:
         pp._tag(axs[0].figure)
     return axs

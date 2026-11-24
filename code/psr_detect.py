@@ -715,8 +715,9 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
             detail=(f"P = {_b['p_s']*1e3:.3f} ms, SNR {_b['snr']:.1f} "
                     f"(Top-N: {len(_ps.get('candidates') or [])} ứng viên)"
                     if _b else
-                    f"không có ứng viên > {_ps.get('threshold', 8):.0f}σ "
-                    f"({len(_ps.get('candidates') or [])} ứng viên xét)")))
+                    (_ps.get("fold_note") or
+                     f"không có ứng viên > {_ps.get('threshold', 8):.0f}σ "
+                     f"({len(_ps.get('candidates') or [])} ứng viên xét)"))))
     if m["stage"].get("zero_dm_dominated"):
         checks.append(dict(name="không bị RFI zero-DM chiếm ưu thế", ok=False,
                            detail=f"SNR(DM=0) = {m['stage']['snr_zero_dm']}, "
