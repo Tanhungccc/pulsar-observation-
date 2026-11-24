@@ -1853,9 +1853,12 @@ class App:
             nchan_iq = 256
 
         self._last_metrics = None
-        # reset khung xem: về panel A của hình mới (hết trạng thái zoom/crop cũ)
+        # reset khung xem: về panel A của hình mới (hết trạng thái zoom/crop cũ).
+        # PHẢI vẽ lại khung ngay — nếu chỉ đổi highlight thì nút A sáng mà
+        # nội dung vẫn là panel cũ (đã gặp: nút A + hình (d) của lần trước).
         self.fig_panel.set("a")
         self._sync_panel_buttons()
+        self._show_fig_placeholder(L.t("Đang phân tích dữ liệu… kết quả mới sẽ hiện ở đây"))
 
         want_search = bool(getattr(self, "det_search", None)
                            and self.det_search.get())
@@ -2021,6 +2024,23 @@ class App:
         "idle": "Chọn panel A/B/C/D để xem.",
     }
 
+    def _show_fig_placeholder(self, text: str) -> None:
+        """Xoá khung xem, ghi một dòng chờ (đang chạy / chưa có hình nào)."""
+        try:
+            self.det_fig.clear()
+            self.det_fig.patch.set_facecolor(self.pal["surface"])
+            ax = self.det_fig.add_subplot(111)
+            ax.text(0.5, 0.5, text, ha="center", va="center",
+                    fontsize=11, color="0.45", transform=ax.transAxes)
+            ax.set_axis_off()
+            self._fig_aspect = 9.0 / 5.2
+            self._fit_fig_canvas()
+            self.det_canvas.draw()
+            self._fig_mode = "idle"
+            self._set_fig_hint("idle")
+        except Exception:                 # noqa: BLE001
+            pass
+
     def select_panel(self, key: str) -> None:
         """Chọn panel A–D; nút chỉ hợp lệ với fig2_detection.png.
 
@@ -2072,8 +2092,12 @@ class App:
 
         FigureCanvasTkAgg tự đổi kích thước Figure theo widget; nếu widget dàn
         theo cửa sổ thì panel bị méo (đã gặp: (c)/(d) bị kéo dãn ngang). Vì
-        vậy: chiều rộng theo khung chứa, chiều cao = rộng / tỉ lệ gốc, không
-        vượt chiều cao khung chứa.
+        vậy: chiều rộng theo khung chứa, chiều cao = rộng / tỉ lệ gốc.
+
+        Chặn TRÊN theo chiều cao THẬT của notebook (vùng tab hiển thị được):
+        page của ttk.Notebook CẮT phần con tràn ra ngoài mà không có scrollbar
+        (đã gặp: trục X của panel (a)/(b) bị cắt mất đáy). winfo_height của
+        khung chứa con vô dụng vì nó cũng phình theo canvas.
         """
         try:
             host = getattr(self, "_fig_host", None)
@@ -2081,9 +2105,15 @@ class App:
             if host is None:
                 return
             pw = max(host.winfo_width(), 240)
-            ph = max(host.winfo_height(), 160)
-            h = int(min(ph, pw / max(self._fig_aspect, 1e-6)))
-            widget.configure(height=max(h, 160))
+            try:
+                nb_h = self.nb.winfo_height()
+            except Exception:                 # noqa: BLE001
+                nb_h = 0
+            # ~170 px: hàng 'Hình:' + hàng nút A–D + nhãn gợi ý + lề padding
+            ph = max(nb_h - 170, 240) if nb_h > 420 else max(host.winfo_height(), 160)
+            h = max(int(min(ph, pw / max(self._fig_aspect, 1e-6))), 160)
+            if abs(widget.winfo_height() - h) > 1:
+                widget.configure(height=h)
         except Exception:                 # noqa: BLE001
             pass
 
@@ -2137,7 +2167,7 @@ class App:
                 psr_render.draw_panel(_rd, self.det_fig, which=_key)
                 self.det_fig.patch.set_facecolor(self.pal["surface"])
                 self._fit_fig_canvas()
-                self.det_canvas.draw_idle()
+                self.det_canvas.draw()
                 self._fig_mode = "vector"
                 self._set_fig_hint("vector")
                 return
@@ -2150,7 +2180,8 @@ class App:
             ax = self.det_fig.add_subplot(111)
             img = mpimg.imread(path)
             h, w = img.shape[:2]
-            x0, y0, x1, y1 = self._crop_for_raster(name, os.path.basename(name))
+            _stem0 = os.path.splitext(os.path.basename(name))[0]
+            x0, y0, x1, y1 = self._crop_for_raster(name, _stem0)
             _crop = img[int(y0*h):max(int(y1*h), int(y0*h) + 1),
                         int(x0*w):max(int(x1*w), int(x0*w) + 1)]
             self._fig_aspect = (_crop.shape[1] / max(_crop.shape[0], 1)
@@ -2159,7 +2190,7 @@ class App:
             ax.set_axis_off()
             self.det_fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
             self._fit_fig_canvas()
-            self.det_canvas.draw_idle()
+            self.det_canvas.draw()
             self._fig_mode = "raster"
             self._set_fig_hint("raster")
         except Exception as e:
