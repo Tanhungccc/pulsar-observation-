@@ -126,10 +126,20 @@ def main(fast=False):
         try:
             import psr_i18n as _L
             _L.set_lang("vi")
-        except Exception:                    # noqa: BLE001
-            pass
-    except Exception:                        # noqa: BLE001
-        pass
+        except Exception as _le:             # noqa: BLE001
+            print(f"⚠ set_lang(vi) lỗi: {_le!r}")
+    except Exception as _fe:                 # noqa: BLE001
+        # KHÔNG nuốt im lặng: trước đây lỗi ở đây làm cả bộ test chạy bằng
+        # nhãn tiếng Anh mà không ai biết (tab/labels sai oan).
+        import traceback
+        print("⚠ KHÔNG ép được ngôn ngữ vi cho test:")
+        traceback.print_exc()
+        try:
+            import psr_i18n as _L
+            _L.set_lang("vi", persist=False)   # đổi _cur trong bộ nhớ, không đụng file
+            print("⚠ đã set_lang(vi) trong bộ nhớ — nhưng hãy sửa lỗi gốc ở trên")
+        except Exception as _le2:            # noqa: BLE001
+            print(f"⚠ vẫn lỗi: {_le2!r}")
 
     root = tk.Tk()
     app = gui_app.App(root)
@@ -372,7 +382,9 @@ def main(fast=False):
         side = p.replace(".fil", ".json")
         chk("sidecar .json metadata tồn tại", os.path.exists(side),
             f"{os.path.getsize(p)/1e6:.2f} MB .fil")
-        import json
+        # json đã import ở ĐẦU MODULE — một `import json` cục bộ tại đây biến
+        # `json` thành biến cục bộ của main() và làm CẢ khối ép-ngôn-ngữ ở đầu
+        # hàm chết với UnboundLocalError (đã gặp: test chạy bằng nhãn tiếng Anh).
         meta = json.load(open(side, encoding="utf-8"))
         chk("metadata có chuỗi phần cứng + gap log + roundtrip",
             all(k in meta for k in ("chain", "gaps", "roundtrip_ok")),

@@ -330,8 +330,8 @@ def apply_styles(root: tk.Misc) -> dict:
            bordercolor=[("disabled", p["line"])])
     st.configure("Stop.TButton", background=p["err_bg"], foreground=p["err"],
                  bordercolor=p["err_line"], lightcolor=p["err_bg"],
-                 darkcolor=p["err_bg"], font=(f["ui"], 9, "bold"),
-                 padding=(12, 6), borderwidth=1)
+                 darkcolor=p["err_bg"], font=(f["ui"], f["btn"][1], "bold"),
+                 padding=(sp(12), sp(6)), borderwidth=1)
     st.map("Stop.TButton",
            background=[("active", p["err_bg"]), ("pressed", p["err_bg"]),
                        ("disabled", p["bg"])],
@@ -339,8 +339,8 @@ def apply_styles(root: tk.Misc) -> dict:
            bordercolor=[("disabled", p["line"])])
     st.configure("Next.TButton", background=p["info_bg"], foreground=p["info"],
                  bordercolor=p["info_line"], lightcolor=p["info_bg"],
-                 darkcolor=p["info_bg"], font=(f["ui"], 9, "bold"),
-                 padding=(12, 6), borderwidth=1)
+                 darkcolor=p["info_bg"], font=(f["ui"], f["btn"][1], "bold"),
+                 padding=(sp(12), sp(6)), borderwidth=1)
     st.map("Next.TButton",
            background=[("active", p["info_bg"]), ("pressed", p["info_bg"]),
                        ("disabled", p["bg"])],
@@ -354,7 +354,8 @@ def apply_styles(root: tk.Misc) -> dict:
            darkcolor=[("active", p["sel_bg"])])
     st.configure("Ghost.TButton", background=p["bg"], foreground=p["muted"],
                  bordercolor=p["line"], lightcolor=p["bg"], darkcolor=p["bg"],
-                 padding=(sp(8), sp(4)), borderwidth=1, anchor="w")
+                 font=f["btn"], padding=(sp(8), sp(4)), borderwidth=1,
+                 anchor="w")
     st.map("Ghost.TButton", background=[("active", p["line2"])],
            lightcolor=[("active", p["line2"])], darkcolor=[("active", p["line2"])],
            foreground=[("active", p["ink"])])
@@ -389,7 +390,7 @@ def apply_styles(root: tk.Misc) -> dict:
     for w in ("TEntry", "TSpinbox", "TCombobox"):
         st.configure(w, fieldbackground=p["surface2"], foreground=p["ink"],
                      bordercolor=p["line"], insertcolor=p["ink"],
-                     arrowcolor=p["muted"], padding=sp(4))
+                     arrowcolor=p["muted"], padding=sp(4), font=f["body"])
         st.map(w, fieldbackground=[("readonly", p["surface2"]),
                                    ("disabled", p["bg"])],
                foreground=[("disabled", p["muted"])],
@@ -400,6 +401,7 @@ def apply_styles(root: tk.Misc) -> dict:
         root.option_add("*TCombobox*Listbox.foreground", p["ink"])
         root.option_add("*TCombobox*Listbox.selectBackground", p["primary"])
         root.option_add("*TCombobox*Listbox.selectForeground", p["primary_ink"])
+        root.option_add("*TCombobox*Listbox.font", f["body"])
     except Exception:                            # noqa: BLE001
         pass
 
