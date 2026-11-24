@@ -70,9 +70,11 @@ Mỗi lần chạy, thư mục `results/<YYYYMMDD_HHMMSS>/` có **cùng một h�
 
 | Tệp | Dùng để | Đặc điểm |
 |---|---|---|
-| `figN_*.png` | xem nhanh trong app, chèn vào báo cáo ngắn | ảnh raster 200 dpi — **phóng to sẽ vỡ nét** |
+| `figN_*.png` | xem nhanh trong app, chèn vào báo cáo ngắn | ảnh raster 200 dpi — **phóng to sẽ vỡ nét** (dùng SVG khi cần soi) |
 | `figN_*.svg` | **zoom vô hạn** (mở bằng Edge/Chrome/Inkscape) | vector, chữ chọn/copy được, nhẹ hơn PNG |
-| `figN_*.pdf` | in ấn, dán vào Word/LaTeX, gửi hội đồng | vector, font nhúng |
+
+Quy ước ký hiệu (mỗi ký hiệu đều có trích dẫn bài báo) và cách tương tác
+zoom/pan/thanh trượt: xem [`docs/10_quy_uoc_hinh.md`](docs/10_quy_uoc_hinh.md).
 
 Trong Tab 2 có nút **“Mở SVG (zoom ∞)”** để mở bản vector của hình đang chọn, và thanh
 công cụ matplotlib (**zoom khung / pan / lưu**) ngay dưới khung hình. Lưu ý: zoom thanh

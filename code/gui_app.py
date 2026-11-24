@@ -1145,6 +1145,17 @@ class App:
             self.det_toolbar.pack(side="bottom", fill="x")
         except Exception:                 # noqa: BLE001 — thiếu backend thì thôi
             self.det_toolbar = None
+        # Zoom/pan bằng chuột + thanh trượt cuộn dữ liệu (Tkinter thuần, không
+        # webview/HTML): lăn chuột = zoom tại con trỏ, kéo = pan, nháy đúp = về
+        # khung ban đầu; 2 thanh trượt dưới hình = vị trí và độ rộng cửa sổ.
+        try:
+            import psr_zoom
+            self.det_zoom = psr_zoom.ZoomPan(self.det_canvas, self.det_fig)
+            self.det_sliders = psr_zoom.add_sliders(vf, self.det_zoom)
+            self.det_sliders.pack(side="bottom", fill="x", padx=6, pady=(0, 4))
+        except Exception:                 # noqa: BLE001 — thiếu module thì vẫn có toolbar
+            self.det_zoom = None
+            self.det_sliders = None
         self._refresh_figure_list()
 
     def _build_detect_steps(self) -> None:
@@ -1981,6 +1992,16 @@ class App:
             self.det_figpick.set(figs[-1])
             self.show_selected_figure()
 
+    def _reset_zoom_home(self):
+        """Sau khi vẽ hình mới, lấy khung nhìn hiện tại làm mốc Reset."""
+        try:
+            if getattr(self, "det_zoom", None):
+                self.det_zoom.axes = [a for a in self.det_fig.axes]
+                self.det_zoom.active = self.det_zoom.axes[0] if self.det_zoom.axes else None
+                self.det_zoom.refresh_home()
+        except Exception:                 # noqa: BLE001
+            pass
+
     def show_selected_figure(self, event=None):
         name = self.det_figpick.get()
         path = os.path.join(RESULTS_DIR, name) if name else None
@@ -1999,7 +2020,7 @@ class App:
             self.log(f"Không hiển thị được hình: {e!r}", "err")
 
     def open_figure_vector(self):
-        """Mở bản VECTOR (SVG ưu tiên, rồi PDF) của hình đang chọn.
+        """Mở bản VECTOR SVG của hình đang chọn.
 
         SVG/PDF là vector: phóng to bao nhiêu cũng không vỡ nét, chữ chọn/copy
         được — dán thẳng vào báo cáo hay slide. Nếu lần chạy cũ chỉ có PNG thì
@@ -2010,7 +2031,7 @@ class App:
             messagebox.showinfo(L.t("Chưa có hình"), L.t("Hãy chạy phát hiện trước."))
             return
         stem = os.path.splitext(name)[0]
-        for ext in (".svg", ".pdf"):
+        for ext in (".svg",):
             p = os.path.join(RESULTS_DIR, stem + ext)
             if os.path.exists(p):
                 try:
@@ -2022,7 +2043,7 @@ class App:
         messagebox.showinfo(
             L.t("Chưa có bản vector"),
             L.t("Hình này chỉ có PNG (lần chạy cũ). Hãy bấm Chạy phát hiện lại "
-                "để có kèm .svg/.pdf."))
+                "để có kèm .svg."))
 
     def open_figure_external(self):
         name = self.det_figpick.get()

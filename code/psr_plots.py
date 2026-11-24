@@ -40,16 +40,19 @@ plt.rcParams.update({
     "font.family": "DejaVu Sans",
 })
 
-#: Định dạng vector ghi kèm mỗi hình. PNG = xem nhanh; SVG/PDF = zoom vô hạn.
-VECTOR_FORMATS = ("svg", "pdf")
+#: Định dạng ghi kèm mỗi hình: PNG = xem nhanh; SVG = vector, zoom vô hạn.
+#: KHÔNG dùng PDF (người dùng không chấp nhận) và KHÔNG xuất HTML.
+#: Vì sao chọn SVG mà không EPS/PS: SVG giữ Unicode (dấu tiếng Việt) và mở
+#: được bằng trình duyệt có sẵn; EPS/PS đời cũ làm mất dấu.
+VECTOR_FORMATS = ("svg",)
 
 
 def save_all(fig, path_png: str, tries: int = 4) -> list:
-    """Ghi 1 hình ra **PNG + SVG + PDF** cùng tên gốc, trả về đường dẫn đã ghi.
+    """Ghi 1 hình ra **PNG + SVG** cùng tên gốc, trả về đường dẫn đã ghi.
 
-    Vì sao: PNG là ảnh raster — phóng to là thấy điểm ảnh. SVG/PDF là vector,
-    zoom tới mức nào nét vẫn sắc, và mở được bằng trình duyệt (Edge/Chrome),
-    Inkscape, Adobe Illustrator, Word/PowerPoint → dán thẳng vào báo cáo.
+    Vì sao: PNG là ảnh raster — phóng to là thấy điểm ảnh. SVG là vector: zoom
+    tới mức nào nét vẫn sắc, chữ chọn/copy được, mở bằng trình duyệt có sẵn
+    (Edge/Chrome), Inkscape, Illustrator → dán thẳng vào báo cáo/slide.
     """
     import os
     import time as _time
@@ -74,6 +77,29 @@ def save_all(fig, path_png: str, tries: int = 4) -> list:
                 _time.sleep(0.4 * (k + 1))
     return out
 
+# =============================================================================
+# QUY ƯỚC KÝ HIỆU — mỗi dòng đều có nguồn, không tự đặt ra
+# -----------------------------------------------------------------------------
+#  · ●  = điểm ĐO được            · arXiv:1501.03312 caption: "based on pulse
+#         broadening (filled red circles) and component separation (open squares)"
+#  · ○  = điểm LỆCH / đại lượng phụ · cùng nguồn trên: "open squares" cho đại
+#         lượng suy ra; ở đây dùng ○ để đánh dấu điểm lệch khớp > 3σ
+#  · —  = đường mô hình khớp       · astro-ph/0701193: "GP (solid line) in
+#         comparison with an AP (dotted line)" — nét liền = sản phẩm chính
+#  · -- = giá trị THAM CHIẾU ngoài · arXiv:2003.01071: "line of equal flux
+#         values is shown by a green dashed line"
+#  · dải tô = bất định/sai số hệ thống · cùng bài: "systematic error ...
+#         represented by the green surface around the diagonal dashed line"
+#  · thanh sai số = bất định TỪNG điểm  · cùng bài: "error bar of 50 %"
+#  · ★  = giá trị SÁNG NHẤT/CỰC TRỊ  · arXiv:2606.10807: "for the average flux
+#         density (plus symbol) and for the brightest observed pulse (stars)"
+#  · ▲/▼ = CHIỀU BIẾN THIÊN hoặc loại trạng thái, KHÔNG dùng để trỏ đỉnh
+#         · arXiv:1511.01767: "upward/downward triangles indicate DM values
+#         increasing/decreasing with time. Unfilled triangles mark pulsars
+#         without significant DM variation"
+#  ⇒ VÌ VẬY: bỏ hẳn ▼ "trỏ đỉnh xung" (không có tiền lệ); chỉ ★ cho xung sáng
+#    nhất, còn các xung khác ghi bằng CHỮ trong chú giải (bài báo cũng vậy).
+# =============================================================================
 C_PULSE = "#d62728"     # đỏ: tín hiệu pulsar
 
 # ===================== QUY ƯỚC KÝ HIỆU TRÊN HÌNH (theo lối các bài báo) =====
@@ -81,6 +107,7 @@ C_PULSE = "#d62728"     # đỏ: tín hiệu pulsar
 #  -------------------------------|--------------------------|---------------
 #  Dữ liệu ĐO được                | chấm tròn đặc  ●         | MK_MEAS = "o"
 #  Đỉnh xung ĐÃ PHÁT HIỆN         | tam giác ▽ ngay trên đỉnh| MK_PEAK = "v"
+MK_BEST = "*"      # ★ xung MẠNH NHẤT (khác ▽ của các xung còn lại)
 #  Giá trị DANH MỤC / lý thuyết   | đường nét đứt mảnh       | C_REF
 #  Đường KHỚP                     | nét liền                 | C_FIT
 #  Vùng xung W50                  | dải tô nhạt ±W50/2       | alpha 0.18
@@ -502,19 +529,30 @@ def plot_timeseries(t_s, series, peaks=None, ax=None, title="",
     if peaks:
         tp = np.array([p["t_s"] for p in peaks]) * scale
         sp = np.interp(np.array([p["t_s"] for p in peaks]), np.asarray(t_s), y)
-        # cột mốc ngắn + tam giác đặt TRÊN đỉnh, CHỪA KHOẢNG HỞ nhỏ để không
-        # chạm vào dữ liệu (tỉ lệ theo độ cao khung nên mọi cỡ hình đều thấy)
+        # KHÔNG vẽ cột mốc/nét đứt dưới tam giác (nét đứt đã dành cho giá trị
+        # tham chiếu; cột mốc che dữ liệu). Tam giác đặt TRÊN đỉnh, có khoảng
+        # hở; xung MẠNH NHẤT dùng ★ để không trùng ký hiệu với các xung khác.
         gap = 0.05 * span
-        stem = 0.10 * span
-        ax.vlines(tp, sp + gap, sp + gap + stem, color=C_PULSE, lw=0.9, zorder=6)
-        ax.plot(tp, sp + gap + stem, "v", color=C_PULSE, ms=8, mew=0.6, mec="k",
-                zorder=7, label=f"xung phát hiện (n={len(peaks)})")
-        ymax = max(ymax, float(np.max(sp + gap + stem)))
-        if peaks:
-            _p0 = peaks[0]
-            ax.plot([], [], MK_PEAK, color=C_PULSE, ms=7, mew=0.6, mec="k",
-                    label=(f"xung phát hiện: t = {_p0['t_s']*scale:.1f} "
-                           f"{unit}, SNR = {_p0['snr']:.0f}"))
+        i_best = int(np.argmax([p.get("snr", 0.0) for p in peaks]))
+        # CHỈ ★ cho xung SÁNG NHẤT (tiền lệ: arXiv:2606.10807 "brightest
+        # observed pulse (stars)"). Các xung còn lại KHÔNG gắn ký hiệu lạ —
+        # bài báo cũng không đánh dấu từng xung; chúng được liệt kê bằng chữ.
+        ax.plot([tp[i_best]], [sp[i_best] + gap], MK_BEST, color="#F59E0B",
+                ms=13, mec="k", mew=0.7, zorder=8,
+                label=(f"xung sáng nhất: t = {peaks[i_best]['t_s']*scale:.1f}"
+                       f" {unit}, SNR = {peaks[i_best]['snr']:.0f}"))
+        _others = ", ".join(f"{peaks[i]['t_s']*scale:.0f}" for i in
+                            range(len(peaks)) if i != i_best)
+        if _others:
+            # Thêm 1 DÒNG CHỮ trong chú giải (không vẽ thêm ký hiệu, không đè
+            # dữ liệu): bài báo cũng liệt kê xung trong bảng/chú giải.
+            from matplotlib.lines import Line2D
+            _h = Line2D([], [], ls="none", marker="", mfc="none", mec="none",
+                        label=f"+{len(peaks) - 1} xung khác: {_others} {unit}")
+            _handles, _labels = ax.get_legend_handles_labels()
+            ax.legend(_handles + [_h], _labels + [_h.get_label()],
+                      loc="best", framealpha=0.92, fontsize=8.5)
+        ymax = max(ymax, float(np.max(sp + gap)))
     ax.set_ylim(ymin - 0.08 * span, ymax + 0.10 * span)
     ax.set_xlabel(f"thời gian ({unit})")
     ax.set_ylabel(ylabel)
@@ -531,8 +569,9 @@ def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
                   threshold=None):
     if ax is None:
         _, ax = plt.subplots(figsize=(7.2, 3.0))
-    ax.plot(dm_grid, snr, ".-", ms=3.5, lw=1.0, color=C_FIT,
-            label="SNR theo DM (đo)")
+    # Đường LIỀN không marker: ~1 000 bước DM san sát nhau, nếu vẽ marker thì
+    # các chấm đè khít thành dải đậm, làm nhoè vùng đỉnh SNR.
+    ax.plot(dm_grid, snr, "-", lw=1.2, color=C_FIT, label="SNR theo DM (đo)")
     x0, x1 = float(np.min(dm_grid)), float(np.max(dm_grid))
     ylo = float(np.min(snr))
     yhi = float(np.max(snr))
@@ -554,9 +593,8 @@ def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
         ax.plot([x0, x1], [threshold, threshold], ls="-.", lw=1.0, color="0.45",
                 zorder=2, label=f"ngưỡng phát hiện {threshold:.0f}σ")
     if dm_meas is not None:
-        # marker TAM GIÁC ở đầu vạch = giá trị ĐO ĐƯỢC
-        ax.plot([dm_meas, dm_meas], [y_hi, y_hi], MK_MEAS, color=C_PULSE, ms=6.5,
-                mec="k", mew=0.5, zorder=4)
+        # chỉ VẠCH dọc (đã có trong chú giải); không thêm chấm ở đầu vạch vì
+        # chấm không có nghĩa riêng, lại nằm đè lên đường dữ liệu
         ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls="-", lw=1.2, color=C_PULSE,
                 zorder=3, label=f"DM đo được = {dm_meas:.2f} pc cm$^{{-3}}$")
     ax.set_xlim(x0 - 0.01 * (x1 - x0), x1 + 0.01 * (x1 - x0))
@@ -608,7 +646,7 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
         # không cột mốc, không đường dọc (cột mốc cũ vừa che dữ liệu vừa trùng
         # với nét đứt của giá trị tham chiếu nếu có).
         gap = 0.05 * span
-        ax.plot([t_ap], [y_ap + gap], MK_PEAK, color=C_PULSE, ms=9,
+        ax.plot([t_ap], [y_ap + gap], MK_BEST, color="#F59E0B", ms=11,
                 mew=0.0, zorder=7, label="_nolegend_")
         # Dải W50 (±W50/2 quanh đỉnh) — cách thể hiện bề rộng theo lối bài báo
         _w50 = metrics.get("w50_ms")
@@ -641,7 +679,9 @@ def plot_subband_lags(f_mhz, lags_ms, dm_fit, dm_err, ax=None,
         _, ax = plt.subplots(figsize=(7.2, 3.2))
     f = np.asarray(f_mhz, float)
     lags = np.asarray(lags_ms, float)
-    ax.plot(f, lags, MK_MEAS, color=C_FIT, ms=5.5,
+    # Thanh sai số: độ tản của điểm đo quanh đường khớp (±1σ) — cho thấy ngay
+    # điểm nào lệch khớp, thay vì để dải mờ không nhìn thấy.
+    ax.plot(f, lags, MK_MEAS, color=C_FIT, ms=6.0, zorder=5,
             label="trọng tâm xung đo được (dải con)")
     f_lo, f_hi = float(f.min()), float(f.max())
     xx = np.linspace(f_lo, f_hi, 200)
@@ -653,8 +693,32 @@ def plot_subband_lags(f_mhz, lags_ms, dm_fit, dm_err, ax=None,
     if dm_err and dm_err > 0:            # dải ±1σ quanh đường khớp
         yy_lo = K * (dm_fit - dm_err) * (1.0 / xx**2 - 1.0 / f_ref**2) * 1e3
         yy_hi = K * (dm_fit + dm_err) * (1.0 / xx**2 - 1.0 / f_ref**2) * 1e3
-        ax.fill_between(xx, yy_lo, yy_hi, color=C_PULSE, alpha=0.18, lw=0,
-                        label="±1σ")
+        # tô đậm hơn + viền để nhìn thấy cả trên màn hình yếu/độ tương phản thấp
+        ax.fill_between(xx, yy_lo, yy_hi, color=C_PULSE, alpha=0.30, lw=0,
+                        edgecolor=C_PULSE, zorder=2,
+                        label=f"±1σ (DM ±{dm_err:.2f})")
+        # thanh sai số cho TỪNG điểm đo: ±1σ của phần dư so với khớp
+        try:
+            y_fit = K * dm_fit * (1.0 / f**2 - 1.0 / f_ref**2) * 1e3
+            res = lags - y_fit
+            sig = 1.4826 * float(np.median(np.abs(res - np.median(res))))
+            if not np.isfinite(sig) or sig <= 0:
+                sig = float(np.std(res)) if res.size > 1 else 0.0
+            if sig > 0:
+                ax.errorbar(f, lags, yerr=sig, fmt="none", ecolor=C_FIT,
+                            elinewidth=1.0, capsize=3.0, alpha=0.85, zorder=4,
+                            label=f"thanh sai số ±{sig:.1f} ms (≈1σ)")
+                # ĐIỂM LỆCH KHỚP > 3σ: đánh dấu vòng tròn rỗng + ghi số σ để
+                # hình không "im lặng" về một điểm không khớp mô hình.
+                z = np.abs(res) / sig
+                out = z > 3.0
+                if out.any():
+                    ax.plot(f[out], lags[out], "o", ms=9, mfc="none",
+                            mec=C_RFI, mew=1.4, zorder=6,
+                            label=f"lệch khớp >3σ ({int(out.sum())} điểm, "
+                                  f"tới {float(np.max(z)):.0f}σ)")
+        except Exception:                # noqa: BLE001 — thiếu dữ liệu thì bỏ
+            pass
     ax.set_xlim(f_lo - 0.01 * (f_hi - f_lo), f_hi + 0.01 * (f_hi - f_lo))
     ax.margins(y=0.10)
     ax.set_xlabel("tần số trung bình dải con (MHz)")

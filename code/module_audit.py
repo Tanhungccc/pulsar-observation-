@@ -481,22 +481,72 @@ def audit_vector_export():
         out = P.save_all(f, os.path.join(d, "fig.png"))
         plt.close(f)
         names = sorted(os.path.basename(x) for x in out)
-        chk("save_all ghi đủ 3 định dạng PNG/SVG/PDF",
-            names == ["fig.pdf", "fig.png", "fig.svg"], str(names))
-        chk("3 tệp đều tồn tại và khác rỗng",
+        chk("save_all ghi đủ PNG + SVG (không PDF, không HTML)",
+            names == ["fig.png", "fig.svg"], str(names))
+        chk("cả 2 tệp đều tồn tại và khác rỗng",
             all(os.path.getsize(os.path.join(d, n)) > 500 for n in names))
         svg = open(os.path.join(d, "fig.svg"), encoding="utf-8").read()
         chk("SVG là XML hợp lệ", svg.lstrip().startswith("<?xml"))
         chk("SVG giữ CHỮ là text (fonttype=none) → chọn/copy được",
             "<text" in svg and "t (ms)" in svg)
-        chk("PDF đúng header %PDF",
-            open(os.path.join(d, "fig.pdf"), "rb").read(4) == b"%PDF")
+        chk("không sinh tệp PDF/HTML ngoài ý muốn",
+            not any(n.endswith((".pdf", ".html")) for n in os.listdir(d)),
+            str(sorted(os.listdir(d))))
         # vector thật: chữ không bị chuyển thành đường vẽ
         chk("SVG không nhúng ảnh raster cho đồ thị đường",
             "<image" not in svg)
     finally:
         import shutil
         shutil.rmtree(d, ignore_errors=True)
+
+
+def audit_zoom():
+    """Zoom/pan/slider: toán khung nhìn phải đúng (không lệch tâm, không trôi)."""
+    section("psr_zoom")
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    import numpy as np
+    import psr_zoom as Z
+
+    fig = Figure()
+    ax = fig.add_subplot(111)
+    ax.plot(np.arange(100), np.arange(100))
+    canvas = FigureCanvasAgg(fig)
+    zp = Z.ZoomPan(canvas, fig)
+    x0 = ax.get_xlim()
+    chk("nhận đúng axes của figure", len(zp.axes) == 1 and zp.active is ax)
+
+    zp.zoom(ax, 2.0, None, "x")
+    w1 = ax.get_xlim()[1] - ax.get_xlim()[0]
+    chk("zoom 2× làm hẹp khung đúng 2 lần",
+        abs(w1 - (x0[1] - x0[0]) / 2.0) < 1e-6,
+        f"{(x0[1]-x0[0]):.3f} → {w1:.3f}")
+
+    c = sum(ax.get_xlim()) / 2.0
+    zp.zoom(ax, 2.0, c + 10.0, "x")     # zoom lệch tâm: tâm phải dịch theo
+    c2 = sum(ax.get_xlim()) / 2.0
+    chk("zoom tại con trỏ: tâm khung dịch về phía con trỏ", c2 > c,
+        f"{c:.2f} → {c2:.2f}")
+
+    w_before = ax.get_xlim()[1] - ax.get_xlim()[0]
+    zp.pan(ax, 60, 0)
+    w_after = ax.get_xlim()[1] - ax.get_xlim()[0]
+    chk("pan không làm đổi độ rộng khung",
+        abs(w_before - w_after) < 1e-6, f"{w_before:.3f} vs {w_after:.3f}")
+
+    zp.reset(ax)
+    chk("reset trả về đúng khung ban đầu",
+        np.allclose(ax.get_xlim(), x0), f"{ax.get_xlim()} vs {x0}")
+
+    zp.set_window(0.25, 0.5, ax)
+    lo, hi = ax.get_xlim()
+    span = (x0[1] - x0[0])
+    chk("set_window: đúng vị trí 25 % và rộng 50 % khung gốc",
+        abs(lo - (x0[0] + 0.25 * span)) < 1e-6 and
+        abs((hi - lo) - 0.5 * span) < 1e-6, f"[{lo:.2f},{hi:.2f}]")
+    zp.detach()
 
 
 def audit_sensitivity():
@@ -734,7 +784,7 @@ AUDITS = {
     "psr_paths": audit_paths, "psr_fil": audit_fil, "psr_fits": audit_fits,
     "psr_iq": audit_iq, "psr_core": audit_core, "psr_period": audit_period,
     "psr_detect": audit_detect, "psr_plots": audit_plots,
-    "psr_plots (vector)": audit_vector_export,
+    "psr_plots (vector)": audit_vector_export, "psr_zoom": audit_zoom,
     "psr_sensitivity": audit_sensitivity, "psr_targets": audit_targets,
     "psr_swcomp": audit_swcomp, "psr_i18n": audit_i18n,
     "ingest_guard": audit_guard, "record_unattended": audit_recorder,
