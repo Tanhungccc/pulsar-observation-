@@ -11,6 +11,7 @@ Exit code 1 nếu có FAIL.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -108,6 +109,28 @@ def _check_save_dirs(app, root):
             _paths.results_dir())
 
 def main(fast=False):
+    # CÔ LẬP cấu hình: bộ test này kiểm bằng CHỮ TIẾNG VIỆT. Nếu settings.json
+    # còn lại lang="en" (do một lần thử thủ công trước đó) thì mọi so sánh nhãn
+    # thất bại oan ứ — đã gặp. Vì vậy ép vi trong lúc test và khôi phục sau.
+    _sp = gui_app.psr_paths.settings_path()
+    _backup = None
+    try:
+        if os.path.exists(_sp):
+            _backup = open(_sp, encoding="utf-8").read()
+        _cur = json.loads(_backup) if _backup else {}
+        _cur["lang"] = "vi"
+        with open(_sp, "w", encoding="utf-8") as fh:
+            json.dump(_cur, fh, ensure_ascii=False, indent=2)
+        # psr_i18n đọc settings NGAY LÚC import (đã xảy ra trước main), nên ghi
+        # tệp thôi là KHÔNG đủ — phải gọi set_lang tường minh.
+        try:
+            import psr_i18n as _L
+            _L.set_lang("vi")
+        except Exception:                    # noqa: BLE001
+            pass
+    except Exception:                        # noqa: BLE001
+        pass
+
     root = tk.Tk()
     app = gui_app.App(root)
     root.update()
@@ -181,9 +204,18 @@ def main(fast=False):
         f"{len(vals)} ảnh, ví dụ {vals[-1] if vals else '—'}")
     app.show_selected_figure()
     root.update()
-    chk("biểu đồ vẽ được vào khung xem",
+    chk("biểu đồ preview vẽ được vào khung xem",
         len(app.det_fig.axes) > 0 and app.det_canvas.get_tk_widget().winfo_exists(),
         f"{len(app.det_fig.axes)} trục ảnh")
+    chk("preview mặc định một panel, không gắn zoom/slider/toolbar",
+        app.fig_panel.get() in {"a", "b", "c", "d"}
+        and getattr(app, "det_zoom", None) is None
+        and getattr(app, "det_sliders", None) is None
+        and getattr(app, "det_toolbar", None) is None,
+        f"panel={app.fig_panel.get()} · zoom controls removed")
+    chk("không còn action zoom/viewer trong ứng dụng",
+        not hasattr(app, "open_large_figure")
+        and not hasattr(app, "open_figure_vector"))
 
     opened.clear(); app.open_report()
     chk("nút 'Mở báo cáo TXT' mở đúng file", bool(opened) and opened[-1].endswith(
@@ -382,7 +414,6 @@ def main(fast=False):
         ("Ban ngày", app.tgt_daytime, "BAN NGÀY"),
         ("Bảng SNR", app.tgt_snr, "SEFD"),
         ("Đại lượng suy ra", app.tgt_derived, "tuổi"),
-        ("Nguồn continuum", app.tgt_objects, "Cas A"),
     ):
         app.tgt_out.configure(state="normal"); app.tgt_out.delete("1.0", "end")
         app.tgt_out.configure(state="disabled")
@@ -494,6 +525,13 @@ def main(fast=False):
         print("KHÔNG ĐẠT:")   # FAIL giữa chừng có thể bị mất khỏi terminal
         for _n, _d in FAILED:
             print(f"  X {_n}  - {_d}")
+    # khôi phục settings.json như trước khi test (không để lại dấu vết)
+    try:
+        if _backup is not None:
+            with open(_sp, "w", encoding="utf-8") as fh:
+                fh.write(_backup)
+    except Exception:                        # noqa: BLE001
+        pass
     return 0 if n == len(R) else 1
 
 

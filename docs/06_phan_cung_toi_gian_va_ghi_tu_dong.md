@@ -132,7 +132,7 @@ Trong quá trình chạy trên dữ liệu thật (GREENBURST/GBT, B0329+54), pi
 | 1 | `zero_dm_excise` cắt **cả xung tán sắc** | DM scan rơi vào 45.25 vô nghĩa; 1110 mẫu bị cắt = đúng 3 vệt xung | chỉ cắt khi phần thừa **phẳng trên phổ** (RFI); giữ khi tập trung theo tần số |
 | 2 | Đo DM bằng trọng tâm bị **nhiễu dương kéo lệch** | DM đo 24–25 thay vì 26.76 | thay bằng đỉnh lọc khớp + nội suy parabol |
 | 3 | Dải 1020 MHz bị **trải nội dải 26 ms** làm mờ đỉnh | trễ đo lệch −7 ms | khử tán sắc **nội dải** trước khi đo đỉnh |
-| 4 | Dải 1860 MHz (GSM/LTE) cho **đỉnh RFI giả** | DM fit lệch | khớp có **sigma-clip** + trọng số SNR |
+| 4 | Một subband có residual lớn so với dispersion fit | DM fit nhạy với cách fit | giữ điểm, báo residual và jackknife; chỉ kết luận nguyên nhân RFI khi có phổ/đối chứng độc lập |
 | 5 | Lỗi `tsamp`/`tsamp_s` bị **câu `except` nuốt** | 0/26 xung mà không thấy lỗi | in exception ra log; không bao giờ nuốt lỗi im lặng |
 | 6 | Dịch kênh khi vẽ waterfall **đảo dấu** | vệt "đã khử tán sắc" vẫn cong | `out[j] = in[j+shift]` (dịch sớm), không phải `in[j−shift]` |
 | 7 | Quét DM kiểu xung đơn **mù** với dữ liệu yếu | mock 12 s: DM scan 51.5 rác | khi biết P: quét DM bằng **fold** (nhạy hơn nhiều) |
@@ -145,29 +145,32 @@ hiện tất cả lỗi trên**. Không có nó, pipeline vẫn "chạy" và cho
 
 ---
 
-## 5. Kết quả trên dữ liệu THẬT (GREENBURST/GBT, B0329+54)
+## 5. Kết quả kiểm chứng trên tệp B0329+54
 
-File: `data/B0329+54.fil` (4096 kênh, 960–1920 MHz, 256 µs, 2.1 s — "Greenburst
-cutout of three pulses from B0329+54", Joseph W Kania, Zenodo 5570222, CC-BY-4.0).
+Tệp `data/B0329+54.fil` được liệt kê trong `DATA_SOURCES.md` với nguồn Zenodo 5570222.
+Header cục bộ ghi `source=TEMP`, không có telescope/source provenance trong header;
+ứng dụng không tự đóng dấu “dữ liệu thật” nếu metadata chưa xác nhận. Đây là tệp
+kiểm chứng phần mềm có mô tả nguồn bên ngoài, không phải dữ liệu đo từ RTP-3.7.
 
 ```bash
 python psr_detect.py        # → results/B0329+54_fig1/fig2, _detect_metrics.json, _report.txt
 ```
 
-Kết quả cuối (tất cả kiểm chứng PASS):
+Kết quả kiểm chứng thuật toán (không phải đo từ RTP-3.7):
 
 | Đại lượng | Đo được | Tham chiếu (ATNF) | Đánh giá |
 |---|---|---|---|
 | Số xung | **3 xung cùng pha 293.7 ± 0.6 ms** (mod P = 714.5 ms) | "three pulses" | ✅ xác nhận pulsar |
-| DM | **25.98 ± 0.50** (trễ dải con, có trọng số SNR) | 26.7641 | ✅ lệch 0.78, trong ngưỡng |
+| DM dải con (pulse mạnh nhất) | **26.32 ± 0.79** pc cm⁻³ (Theil–Sen, 8 subband giữ lại, jackknife) | 26.7641 | residual đầu dải thấp ≈−7.1 ms; cần kiểm tra thêm, không tự gán nguyên nhân |
 | DM (quét fold) | 27.25 (đỉnh 608σ) | 26.7641 | ✅ |
 | SNR xung mạnh nhất | **608** (lọc khớp boxcar) | — | |
 | Bề rộng xung | 8.2 ms @1.9 GHz | W50 ≈ 6–12 ms | ✅ |
 | Đối chứng nền (xáo trộn từng kênh) | 9.2σ | phải < 12 | ✅ không có phát hiện giả |
-| Ứng viên bị loại | 21 (RFI hẹp băng, DM dải con vô nghĩa) | — | bộ lọc nhất quán DM hoạt động |
+| Ứng viên DM không nhất quán/fit không đủ tin cậy | ghi trong metrics, nguyên nhân chưa xác định | — | không gọi là RFI nếu thiếu chẩn đoán độc lập |
 
-Kết luận: pipeline phát hiện pulsar trên **dữ liệu kính thiên văn thật**, đo
-đúng DM trong sai số cho phép, tự loại RFI, và tự xác nhận bằng **tính cùng pha**.
+Kết luận giới hạn: pipeline nhận diện 3 pulse candidate nhất quán DM và kiểm tra pha
+trên tệp tham chiếu. Điều này xác nhận đường xử lý phần mềm ở mức kiểm thử; **không**
+chứng minh receiver/feed POAM đã thu pulsar, và không xác định nguồn residual thấp tần.
 
 ---
 
@@ -348,7 +351,7 @@ Kết quả trên máy này:
 | Quét DM | đỉnh **108.3σ tại DM = 56.75** (Crab: 56.77) ✔ |
 | So với DM = 0 | 3.8σ → tỉ số **19×** ⇒ tín hiệu **có tán sắc thật** |
 | Xung | 1 giant pulse tại t = 27.3 ms, rộng 0.8 ms, SNR 108 |
-| DM dải con (A11c) | **56.71** (lệch 0.06 so với catalogue) |
+| DM dải con (A11c) | **56.71** trên file giant-pulse kiểm thử; đối chiếu catalogue chỉ là kiểm chứng, không là provenance của lần thu |
 | Kết luận | `status = ok`, 5/5 kiểm chứng PASS |
 
 > Đây là bằng chứng mạnh nhất từ đầu dự án: **từ mẫu điện áp thô → FFT → khử tán sắc

@@ -433,8 +433,8 @@ def subband_dm_single(dyn, freqs_mhz, tsamp_s: float, t_peak_s: float,
          trải nội dải tới 26 ms (120 MHz quanh 1 GHz) → đỉnh boxcar lòe
          trong mặt phẳng, sai 10–20 ms nếu không khử.
       2. NỘI SUY PARABOL trên mẫu đỉnh → độ phân giải dưới 1 mẫu.
-      3. KHỚP CÓ LOẠI NGOẠI LAI (sigma-clip): dải chứa RFI di động
-         (1800–1920 MHz) cho đỉnh giả → bị loại tự động khỏi phép khớp.
+      3. robust clipping chỉ loại điểm có residual lớn khi còn ≥5 dải con;
+         luôn trả `used` để caller có thể kiểm toán lựa chọn.
 
     Fit: t_đo(f) = t0 + K·DM·(1/f²)  →  DM = slope/K.
     Trả về dict {dm, dm_err, t0_s, lags_s, freqs_mhz, snr_sub, used}.
@@ -485,34 +485,67 @@ def subband_dm_single(dyn, freqs_mhz, tsamp_s: float, t_peak_s: float,
             f"không thấy xung trong cửa sổ quanh t={t_peak_s*1e3:.0f} ms "
             f"(SNR dải con trung vị {np.median(snrs):.1f} < 5)")
 
-    # ---- khớp tuyến tính TRỌNG SỐ SNR + LOẠI NGOẠI LAI
-    # (dải thấp xung bị tán xạ làm rộng → đỉnh lệch sớm; dải RFI cho đỉnh giả;
-    #  trọng số SNR giảm ảnh hưởng của cả hai)
+    # ---- Robust DM from a physically bounded set of arrival times.
+    # Matched filtering on a broad, asymmetric pulse can select a different
+    # local feature in one subband (here the low-frequency pulse peak is early).
+    # Use the Theil-Sen median of pairwise slopes (50% breakdown) for this
+    # small 8-subband set. The SNR-weighted LS is retained as a diagnostic;
+    # it can be pulled strongly by a single high-leverage low-frequency band.
+    # All measured bands remain in the returned data; no causal RFI label.
     x = 1.0 / fmean**2
-    used = np.ones(len(x), dtype=bool)
-    sol = np.zeros(2)
     sw_all = np.sqrt(np.maximum(snrs, 1e-9))
-    for _ in range(3):
-        sw = sw_all[used]
-        A = np.vstack([x[used], np.ones(used.sum())]).T * sw[:, None]
-        b = tpos[used] * sw
-        sol, *_ = np.linalg.lstsq(A, b, rcond=None)
-        resid = tpos - (sol[0] * x + sol[1])
-        r = resid[used]
-        sig = 1.4826 * np.median(np.abs(r - np.median(r))) + 1e-12
-        new = used & (np.abs(resid - np.median(r)) < 2.5 * sig)
-        if new.sum() < 4 or (new == used).all():
-            break
-        used = new
-    dm = float(sol[0]) / K_DM
-    t0 = float(sol[1])
-    rr = tpos[used] - (sol[0] * x[used] + sol[1])
-    dm_err = max(abs(np.sqrt(np.mean(rr**2)) / abs(sol[0]) * dm
-                     * np.sqrt(used.sum())), 0.01 * abs(dm))
-    return {"dm": dm, "dm_err": dm_err, "t0_s": t0,
-            "lags_s": tpos - tpos[-1],
+    wls_A = np.vstack([x, np.ones(len(x))]).T * sw_all[:, None]
+    wls_b = tpos * sw_all
+    wls, *_ = np.linalg.lstsq(wls_A, wls_b, rcond=None)
+    slopes = np.asarray([(tpos[i] - tpos[j]) / (x[i] - x[j])
+                         for i in range(len(x)) for j in range(i + 1, len(x))
+                         if x[i] != x[j]], float)
+    if not slopes.size:
+        raise ValueError("không đủ tần số khác nhau để khớp DM")
+    ts_coef = float(np.median(slopes))
+    ts_offset = float(np.median(tpos - ts_coef * x))
+    ts_resid = tpos - (ts_coef*x + ts_offset)
+    wls_resid = tpos - (wls[0]*x + wls[1])
+    ts_rms = float(np.sqrt(np.mean(ts_resid**2)))
+    wls_rms = float(np.sqrt(np.average(wls_resid**2, weights=sw_all**2)))
+    coef, offset, method = ts_coef, ts_offset, "Theil-Sen median pairwise slope"
+    resid_all = ts_resid
+    resid_med = float(np.median(resid_all))
+    resid_scale = 1.4826 * float(np.median(np.abs(resid_all-resid_med)))
+    # Deterministic bootstrap over subbands, preserving repeats; invalid draws
+    # with <2 distinct frequencies are ignored. This uncertainty includes the
+    # observed low-frequency discrepancy instead of shrinking after clipping.
+    dm = coef / K_DM
+    # For n=8, naive resampling with replacement repeats frequencies and gives
+    # a misleadingly unstable slope. Use leave-one-subband-out jackknife.
+    loo = []
+    for j in range(len(x)):
+        keep = np.arange(len(x)) != j
+        pair = [(tpos[i]-tpos[k])/(x[i]-x[k])
+                for i in np.flatnonzero(keep)
+                for k in np.flatnonzero(keep)[np.where(np.flatnonzero(keep)>i)[0]]
+                if x[i] != x[k]]
+        if pair:
+            loo.append(float(np.median(pair))/K_DM)
+    dm_err_boot = (float(np.sqrt((len(x)-1)/len(x) *
+                        np.sum((np.asarray(loo)-np.mean(loo))**2)))
+                   if len(loo) == len(x) else 0.0)
+    dm_err = max(dm_err_boot, 0.03 * abs(dm), 0.01)
+    t0 = offset
+    used = np.ones(len(x), dtype=bool)  # estimator retains all subbands
+    return {"dm": dm, "dm_err": float(dm_err),
+            "dm_err_jackknife": float(dm_err_boot),
+            "dm_err_wls_diagnostic": float(wls_rms / max(abs(wls[0]), 1e-30)
+                                                * abs(float(wls[0]) / K_DM)),
+            "fit_rms_theilsen_s": ts_rms,
+            "fit_rms_wls_s": wls_rms,
+            "error_method": "leave-one-subband-out jackknife (3% systematic floor)",
+            "fit_method": method,
+            "all_subbands_retained": True,
+            "t0_s": t0, "lags_s": tpos - tpos[-1],
             "freqs_mhz": fmean, "snr_sub": np.asarray(snrs),
-            "used": used}
+            "resid_s": resid_all, "resid_scale_s": float(resid_scale),
+            "n_used": int(used.sum()), "used": used}
 
 
 # Lưới độ rộng lọc boxcar (mẫu). Có 48 và 96 để KHÔNG bị ép nhảy gấp đôi

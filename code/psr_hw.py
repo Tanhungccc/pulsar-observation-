@@ -107,9 +107,26 @@ PARTS = {
         nchan_rx=8,                       # RTRS #1..#8 [DS]
         gain_min_db=0.0, gain_max_db=70.0, gain_step_db=1.0,
         iq_stream=False,                 # ← CHẶN: chưa có API/luồng IQ
+        lband_feed_confirmed=False,       # chưa có ảnh/đo xác nhận đã lắp
+        if_rf_mapping_mhz={1500: (3650, 4250)},  # chỉ nếu 1500 là IF; LO 5150/5750 giả thuyết
         exports=("line.csv", "continuum.txt", "scan.txt"),
-        note="Đã có xuất phổ 2048 điểm (Δf 20 kHz) + công suất ≤10 Hz. "
+        note="Đã có xuất phổ 2048 điểm + công suất ≤10 Hz. CSV mẫu bị làm tròn "
+             "tần số; Δf đúng tính từ span là khoảng 24.42 kHz (không dùng median(diff)). "
              "CHƯA có luồng IQ ⇒ không fold được pulsar; cần API từ POAM.",
+    ),
+    "poam_ncu": dict(
+        kind="calibrator",
+        name="POAM Noise Calibrator Unit (NCU)",
+        ip="192.168.1.100", port=None, protocol="RTCS Calibrator tab",
+        eca_m2=6.40,                       # [DS manual screenshot, Table/Fig. 15]
+        enr_db=30.0,                       # [DS interpretation] ENR≈30 dB
+        enr_input_c=290000.0,              # RTCS GUI expects noise temp in °C (manual ambiguity)
+        sequence_s=dict(noise=20, load=20, sun=240, cycle=280),
+        states=("Noise On", "Load On", "Sun"),
+        note="Manual Figure 15 example: ECA=6.40 m², ENR input=2.90E+5 °C-equivalent "
+             "(interpreted as about 30 dB). Not measured/verified on the POAM unit. "
+             "Confirm unit/ENR with POAM using Noise On/Load On; do not treat example "
+             "settings as field calibration.",
     ),
     "poam_acu": dict(
         kind="acu",
@@ -124,10 +141,15 @@ PARTS = {
         track_accuracy_deg=(1.0, 0.5, 0.3),                  # [DS] §5
         remote_password="222222",        # [DS] §3 (Settings → remote)
         gps_lock=False,                  # [ẢNH] GPS tắt
-        clock_note="ACU hiển thị LOCAL = GMT (UTC+0); RTCS đặt Time Zone 7 → "
-                   "lệch 7 h = 105° góc giờ nếu nhập sai múi giờ",
+        clock_note="Đo dữ liệu thử xác nhận PC/RTCS UTC+7: LST lệch khoảng 3.6 s; "
+                   "không chỉnh giờ PC. ACU riêng hiển thị LOCAL=GMT và GPS=OFF; "
+                   "chỉ cần đồng bộ/đặt UTC trên ACU nếu dùng ACU tự bám sao trực tiếp. "
+                   "RTCS tiếp tục dùng Time Zone=7, East.",
+        park_el_deg=85.0,                  # [DS] RTCS manual §3.5 PARK
         note="Có thể điều khiển từ PC qua Modbus TCP khi ACU ở chế độ Remote; "
-             "cần bảng thanh ghi từ POAM để app tự bám RA/Dec.",
+             "cần bảng thanh ghi từ POAM để app tự bám RA/Dec. EL DOWN LIMIT "
+             "~29-30° hiện tại: không tự clear/thay đổi khi chưa kiểm tra cơ khí "
+             "và được POAM cho phép."
     ),
 
     # ---- nguồn cấp điện / phụ trợ ----
@@ -174,6 +196,37 @@ class ChainResult:
         for w in self.warnings:
             lines.append(f"  ⚠ {w}")
         return "\n".join(lines)
+
+
+def poam_profile_summary() -> str:
+    """Tóm tắt thiết bị POAM đang có, tách bạch dữ kiện/manual khỏi giả thiết.
+
+    Hàm chỉ trình bày profile; không probe mạng, không điều khiển ACU và không
+    suy đoán rằng generic SDR fallback đã nối với Receiver POAM.
+    """
+    rx, acu, ncu = PARTS["poam_receiver"], PARTS["poam_acu"], PARTS["poam_ncu"]
+    feed = ("C-band box được thấy tại tiêu điểm; L-band feed chưa xác minh lắp"
+            if not rx.get("lband_feed_confirmed") else "L-band feed đã xác nhận")
+    lines = [
+        "=== HỒ SƠ THIẾT BỊ POAM RTP-3.7 (profile/manual; chưa thay phép đo hiện trường) ===",
+        f"Receiver: {rx['lo_mhz']:.0f}–{rx['hi_mhz']:.0f} MHz · analog BW {rx['bw_mhz']:.0f} MHz · "
+        f"IQ {rx['reliable_rate']:.0f} MS/s khuyến nghị / {rx['max_rate_msps']:.0f} max · "
+        f"gain {rx['gain_min_db']:.0f}–{rx['gain_max_db']:.0f} dB · {rx['nchan_rx']} RTRS",
+        f"IQ stream API: {'có' if rx['iq_stream'] else 'CHƯA CÓ / CHƯA XÁC NHẬN'}; "
+        "RTCS exports line/continuum/scan không phải raw pulsar time series.",
+        f"Feed: {feed}.",
+        "IF scenario only: nếu 1500 MHz là IF, LO 5150→RF 3650 MHz; LO 5750→RF 4250 MHz. "
+        "LO/đường tín hiệu thực tế chưa xác nhận.",
+        f"ACU: Modbus {acu['ip']}:{acu['port']} · AZ 0–360° · EL 0–90° · "
+        f"observed EL DOWN LIMIT ≈29–30°; GPS OFF, LOCAL=GMT (ACU only). "
+        "PC/RTCS site timezone remains UTC+7; không đổi đồng hồ PC.",
+        f"PARK: EL≈{acu['park_el_deg']:.0f}° theo RTCS manual; chỉ thao tác khi an toàn.",
+        f"NCU example/manual: {ncu['ip']} · ECA {ncu['eca_m2']:.2f} m² · "
+        f"ENR input {ncu['enr_input_c']:.2g} °C-equivalent (≈{ncu['enr_db']:.0f} dB interpretation) · "
+        "Noise/Load/Sun 20/20/240 s. ENR và trạng thái NCU tại thiết bị chưa đo/xác minh.",
+        "Fallback dự phòng (RTL/SDR trong mục dự đoán) là chuỗi riêng, không phải đường RF đã nối vào Receiver POAM.",
+    ]
+    return "\\n".join(lines)
 
 
 def t_rec_from_nf(nf_db: float) -> float:
@@ -395,6 +448,18 @@ def self_check() -> list[str]:
     c3 = detect_chain("1420", have={"lna": "rtl_internal"})
     if c3.t_sys_k < 800:
         errs.append("LNA nội phải cho T_sys > 800 K")
+    ncu = PARTS.get("poam_ncu", {})
+    if ncu.get("ip") != "192.168.1.100" or ncu.get("eca_m2") != 6.40:
+        errs.append("hồ sơ POAM NCU: IP/ECA bị thiếu hoặc sai")
+    if tuple(ncu.get("sequence_s", {}).get(k) for k in ("noise", "load", "sun")) != (20, 20, 240):
+        errs.append("hồ sơ NCU: chu trình 20/20/240 s không khớp manual")
+    if PARTS.get("poam_acu", {}).get("park_el_deg") != 85.0:
+        errs.append("hồ sơ ACU: PARK EL phải là 85° theo manual")
+    rx = PARTS.get("poam_receiver", {})
+    if rx.get("lband_feed_confirmed") is not False:
+        errs.append("hồ sơ Receiver: L-band feed phải để unconfirmed")
+    if rx.get("if_rf_mapping_mhz", {}).get(1500) != (3650, 4250):
+        errs.append("hồ sơ Receiver: conditional IF/RF scenarios missing")
     return errs
 
 

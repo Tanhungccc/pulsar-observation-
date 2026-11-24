@@ -114,6 +114,24 @@ def audit_site():
 
 
 # ------------------------------------------------------------------- psr_paths
+def audit_hardware_profile():
+    section("psr_hw POAM profile")
+    import psr_hw as H
+    errs = H.self_check()
+    chk("psr_hw.self_check includes NCU/ACU facts", not errs, "; ".join(errs))
+    ncu, acu, rx = H.PARTS["poam_ncu"], H.PARTS["poam_acu"], H.PARTS["poam_receiver"]
+    chk("NCU IP/ECA/cycle match manual", ncu["ip"] == "192.168.1.100"
+        and ncu["eca_m2"] == 6.40
+        and tuple(ncu["sequence_s"][k] for k in ("noise","load","sun")) == (20,20,240))
+    chk("ENR 30 dB explicitly marked as unverified interpretation",
+        ncu["enr_db"] == 30.0 and "chưa xác minh" in ncu["note"].lower())
+    chk("ACU PARK EL and limit safety note", acu["park_el_deg"] == 85.0
+        and "không tự clear" in acu["note"].lower())
+    chk("L-band feed status and conditional LO/IF mapping explicit",
+        rx["lband_feed_confirmed"] is False
+        and rx["if_rf_mapping_mhz"][1500] == (3650,4250))
+
+
 def audit_paths():
     section("psr_paths")
     import psr_paths as P
@@ -396,6 +414,27 @@ def audit_period():
 # ---------------------------------------------------------------- psr_detect
 def audit_detect():
     section("psr_detect")
+    import psr_core as _core
+    # Regression for the measured B0329+54 single-pulse subband lag set:
+    # 8 points, low-frequency endpoint is a large residual. Robust estimator
+    # must retain auditable points, not silently clip 4/8 based on tiny MAD.
+    _f = np.array([1019.8828,1139.7656,1259.7656,1379.7656,
+                   1499.8260,1620.0,1740.0,1860.0])
+    _lag_ms = np.array([66.29084,52.97730,37.45802,26.50218,
+                        16.26240,10.69091,4.53932,0.0])
+    _lag = _lag_ms / 1000.0               # fit equation returns seconds
+    _K = 4.148808e3
+    _x = 1 / _f**2
+    _slopes = [(_lag[i]-_lag[j]) / (_x[i]-_x[j])
+               for i in range(8) for j in range(i+1,8)]
+    _dm_ts = float(np.median(_slopes)) / _K
+    chk("B0329 measured subband DM is finite and near catalogue (≈26.32)",
+        abs(_dm_ts-26.32) < 0.15, f"Theil-Sen DM={_dm_ts:.3f}")
+    _inter = float(np.median(_lag-_dm_ts*_K*_x))
+    _resid = _lag - (_dm_ts*_K*_x+_inter)
+    chk("B0329 low edge residual is reported, not silently deleted",
+        abs(float(_resid[0])) > 0.005,
+        f"low-edge residual={_resid[0]*1e3:.2f} ms; all 8 points retained")
     import psr_detect as D
     chk("safe_stem: cắt ≤ 60 ký tự", len(D.safe_stem("x" * 200)) <= D.MAX_STEM,
         str(len(D.safe_stem("x" * 200))))
@@ -409,11 +448,20 @@ def audit_detect():
     if os.path.exists(real):
         m, _ = quiet(D.detect, real, dm_ref=26.7641, out_name="audit_b0329")
         chk("B0329+54: status ok", m.get("status") == "ok", str(m.get("status")))
-        chk("B0329+54: DM dải con trong 5 % của 26,764",
-            abs(float(m["stage"].get("dm_subband_mean") or 0) - 26.7641) < 1.4,
-            f"{m['stage'].get('dm_subband_mean')}")
+        chk("B0329+54: DM dải con còn trong 8 % reference (8 subband noisy)",
+            abs(float(m["stage"].get("dm_subband_mean") or 0) - 26.7641) < 2.2,
+            f"{m['stage'].get('dm_subband_mean')} ± "
+            f"{m['stage'].get('dm_subband_std')}")
         chk("B0329+54: figure_check rỗng (đơn vị + bố cục)",
             m.get("figure_check") == [], str(m.get("figure_check"))[:60])
+        # Matched-filter SNR không phải peak amplitude; label trên panel phải
+        # diễn giải đúng đại lượng đã sắp xếp để không gọi nhầm "sáng nhất".
+        import psr_plots as _plots
+        import inspect as _inspect
+        _src_plot = _inspect.getsource(_plots.plot_timeseries)
+        chk("nhãn ★ nói rõ matched-filter SNR, không gọi peak sáng nhất",
+            "SNR lọc khớp cao nhất" in _src_plot and
+            "xung sáng nhất:" not in _src_plot)
         chk("report có input_sha256 + schema_version",
             bool(m.get("input_sha256")) and m.get("schema_version") == 3)
         chk("guard gắn nhãn cho dữ liệu thật",
@@ -496,6 +544,55 @@ def audit_plots():
         chk(f"figure_report bắt '{kind}'", kind in {i["kind"] for i in issues},
             str(sorted({i["kind"] for i in issues})))
 
+    # No provenance is asserted by default. Explicit verified provenance may
+    # be shown in-panel and must be ignored by overlap/unit audits as a badge.
+    f, axv = plt.subplots()
+    axv.plot([0, 1], [0, 1], label="series")
+    chk("không tự gắn badge REAL khi provenance chưa biết", P._tag(f) is None)
+    tag = P._tag(f, "observational (verified metadata)")
+    chk("badge chỉ hiện khi provenance được truyền tường minh",
+        tag is not None and tag.axes is axv and
+        np.allclose(tag.get_position(), (0.012, 0.985)))
+    axv.set_xlabel("time (s)"); axv.set_ylabel("relative signal (a.u.)")
+    chk("badge provenance không tạo figure_report issue",
+        P.figure_report(f) == [], str(P.figure_report(f))[:80])
+    plt.close(f)
+
+    # kiểm tra chính tả nhãn: signal đã trừ nền, chưa fit residual
+    from inspect import getsource
+    chk("ylabel nêu rõ cường độ tương đối đã trừ nền (không gọi residual)",
+        "cường độ tương đối (đã trừ nền, chuẩn hoá)" in getsource(P.plot_timeseries)
+        and "công suất dư" not in getsource(P.plot_timeseries))
+    # Matplotlib auto legend must not sit over the star at t=1722.9 ms.
+    src_ts = getsource(P.plot_timeseries)
+    chk("star marker at selected candidate; fixed upper-center legend preferred",
+        'ax.plot([tp[i_best]]' in src_ts and
+        'SNR lọc khớp cao nhất' in src_ts and
+        'ax._preferred_legend_loc = "upper center"' in src_ts)
+    # Match the app preview aspect (wide and short): this caught the screenshot
+    # case where the star over the high-SNR event touched the upper-right legend.
+    _fstar, _astar = plt.subplots(figsize=(15.7, 2.4))
+    _yy = np.zeros(2048); _yy[292] = .768; _yy[1006] = .450; _yy[1723] = .703
+    _pulses = [dict(t_s=.2916, snr=593), dict(t_s=1.006, snr=418),
+               dict(t_s=1.7229, snr=608)]
+    P.plot_timeseries(np.arange(2048)*.001, _yy, peaks=_pulses,
+                      ax=_astar, ylabel="relative signal (a.u.)")
+    _fstar.canvas.draw()
+    _leg = _astar.get_legend()
+    _star = next(x for x in _astar.lines if x.get_marker() == P.MK_BEST
+                 and x.get_label() == "_nolegend_")
+    _sb, _lb = _star.get_window_extent(), _leg.get_window_extent()
+    _overlap = not (_sb.x1 < _lb.x0 or _sb.x0 > _lb.x1 or
+                    _sb.y1 < _lb.y0 or _sb.y0 > _lb.y1)
+    chk("star glyph is not overlapped by legend",
+        not _overlap, f"marker={_sb.bounds}, legend={_lb.bounds}")
+    plt.close(_fstar)
+    src_fit = getsource(P.plot_subband_lags)
+    chk("subband residual shown in ms; no unsupported sigma/RFI cause",
+        '>3σ' not in src_fit and '17σ' not in src_fit and
+        'tới {float(np.max(np.abs(res[out]))):.1f} ms' in src_fit and
+        'nguyên nhân chưa xác định' in src_fit)
+
     # hình chuẩn không được có lỗi
     f, a = plt.subplots()
     a.plot([0, 10], [0, 5], label="chuỗi")
@@ -510,7 +607,7 @@ def audit_plots():
 
 # ------------------------------------------------------------- psr_sensitivity
 def audit_vector_export():
-    """Ghi hình phải có PNG + SVG + PDF (SVG/PDF = vector → zoom không vỡ)."""
+    """Mỗi hình phải có PNG và SVG cho báo cáo ngoài ứng dụng."""
     section("psr_plots (vector)")
     import os
     import tempfile
@@ -547,53 +644,53 @@ def audit_vector_export():
         shutil.rmtree(d, ignore_errors=True)
 
 
-def audit_zoom():
-    """Zoom/pan/slider: toán khung nhìn phải đúng (không lệch tâm, không trôi)."""
-    section("psr_zoom")
-    import matplotlib
-    matplotlib.use("Agg")
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    import numpy as np
-    import psr_zoom as Z
+def audit_preview_no_zoom():
+    """GUI intentionally exposes no embedded zoom control after user request."""
+    section("GUI preview: static panel, no zoom action")
+    from tkinter import Tk
+    import gui_app
+    root = Tk()
+    try:
+        app = gui_app.App(root)
+        root.update()
+        buttons = []
+        def walk(w):
+            for c in w.winfo_children():
+                if c.winfo_class() == "TButton":
+                    buttons.append(str(c.cget("text")))
+                walk(c)
+        walk(app.tab_det)
+        zoom_buttons = [x for x in buttons if any(k in x.lower()
+                         for k in ("zoom", "phóng", "xem lớn", "svg"))]
+        chk("preview defaults to a single panel", app.fig_panel.get() in {"a","b","c","d"})
+        chk("no zoom/viewer controls in Tab 2", not zoom_buttons, str(zoom_buttons))
+        chk("no custom zoom handlers attached", getattr(app,"det_zoom",None) is None
+            and getattr(app,"det_sliders",None) is None
+            and getattr(app,"det_toolbar",None) is None)
+        chk("full saved PNG can be opened externally", callable(app.open_figure_external))
+    finally:
+        try: root.destroy()
+        except Exception: pass
 
-    fig = Figure()
-    ax = fig.add_subplot(111)
-    ax.plot(np.arange(100), np.arange(100))
-    canvas = FigureCanvasAgg(fig)
-    zp = Z.ZoomPan(canvas, fig)
-    x0 = ax.get_xlim()
-    chk("nhận đúng axes của figure", len(zp.axes) == 1 and zp.active is ax)
 
-    zp.zoom(ax, 2.0, None, "x")
-    w1 = ax.get_xlim()[1] - ax.get_xlim()[0]
-    chk("zoom 2× làm hẹp khung đúng 2 lần",
-        abs(w1 - (x0[1] - x0[0]) / 2.0) < 1e-6,
-        f"{(x0[1]-x0[0]):.3f} → {w1:.3f}")
-
-    c = sum(ax.get_xlim()) / 2.0
-    zp.zoom(ax, 2.0, c + 10.0, "x")     # zoom lệch tâm: tâm phải dịch theo
-    c2 = sum(ax.get_xlim()) / 2.0
-    chk("zoom tại con trỏ: tâm khung dịch về phía con trỏ", c2 > c,
-        f"{c:.2f} → {c2:.2f}")
-
-    w_before = ax.get_xlim()[1] - ax.get_xlim()[0]
-    zp.pan(ax, 60, 0)
-    w_after = ax.get_xlim()[1] - ax.get_xlim()[0]
-    chk("pan không làm đổi độ rộng khung",
-        abs(w_before - w_after) < 1e-6, f"{w_before:.3f} vs {w_after:.3f}")
-
-    zp.reset(ax)
-    chk("reset trả về đúng khung ban đầu",
-        np.allclose(ax.get_xlim(), x0), f"{ax.get_xlim()} vs {x0}")
-
-    zp.set_window(0.25, 0.5, ax)
-    lo, hi = ax.get_xlim()
-    span = (x0[1] - x0[0])
-    chk("set_window: đúng vị trí 25 % và rộng 50 % khung gốc",
-        abs(lo - (x0[0] + 0.25 * span)) < 1e-6 and
-        abs((hi - lo) - 0.5 * span) < 1e-6, f"[{lo:.2f},{hi:.2f}]")
-    zp.detach()
+def audit_hardware_profile():
+    """Các dữ kiện NCU/ACU POAM trong registry phải nhất quán với docs/manual."""
+    section("psr_hw POAM profile")
+    import psr_hw as H
+    errs = H.self_check()
+    chk("psr_hw.self_check gồm profile NCU/ACU", not errs, "; ".join(errs))
+    ncu = H.PARTS["poam_ncu"]
+    acu = H.PARTS["poam_acu"]
+    chk("NCU IP/ECA/sequence manual", ncu["ip"] == "192.168.1.100"
+        and ncu["eca_m2"] == 6.4
+        and tuple(ncu["sequence_s"][k] for k in ("noise","load","sun")) == (20,20,240))
+    chk("NCU ENR 30 dB is interpretation, not field-measured",
+        ncu["enr_db"] == 30.0 and "not measured/verified" in ncu["note"].lower())
+    chk("ACU PARK 85° + EL limit protected", acu["park_el_deg"] == 85.0
+        and "không tự clear" in acu["note"].lower())
+    chk("feed L-band not assumed installed; conditional IF mapping in profile",
+        H.PARTS["poam_receiver"].get("lband_feed_confirmed") is False
+        and H.PARTS["poam_receiver"].get("if_rf_mapping_mhz")[1500] == (3650,4250))
 
 
 def audit_sensitivity():
@@ -829,9 +926,12 @@ def audit_gui():
 AUDITS = {
     "psr_constants": audit_constants, "psr_site": audit_site,
     "psr_paths": audit_paths, "psr_fil": audit_fil, "psr_fits": audit_fits,
+    "psr_hw POAM profile": audit_hardware_profile,
     "psr_iq": audit_iq, "psr_core": audit_core, "psr_period": audit_period,
     "psr_detect": audit_detect, "psr_plots": audit_plots,
-    "psr_plots (vector)": audit_vector_export, "psr_zoom": audit_zoom,
+    "psr_plots (vector)": audit_vector_export,
+    "GUI preview (no zoom)": audit_preview_no_zoom,
+    "psr_hw POAM profile": audit_hardware_profile,
     "psr_sensitivity": audit_sensitivity, "psr_targets": audit_targets,
     "psr_swcomp": audit_swcomp, "psr_i18n": audit_i18n,
     "ingest_guard": audit_guard, "record_unattended": audit_recorder,

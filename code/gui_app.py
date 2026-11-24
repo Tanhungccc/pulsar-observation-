@@ -567,7 +567,7 @@ class App:
         import psr_site as _site
         # Notebook ẨN dải tab (style Nav.TNotebook) + menu dọc bên trái.
         # Vẫn là con TRỰC TIẾP của tab_set và vẫn đủ 5 tab (bộ test kiểm tra).
-        sub = ttk.Notebook(self.tab_set, style="Nav.TNotebook")
+        sub = self.settings_sub = ttk.Notebook(self.tab_set, style="Nav.TNotebook")
 
         # (a) HỒ SƠ TRẠM / KÍNH -------------------------------------------
         f_prof = ttk.Frame(sub)
@@ -1032,8 +1032,9 @@ class App:
         # ---- dải bước: Chọn dữ liệu → Kiểm tra → Cấu hình → Phân tích → Kết quả
         self._build_detect_steps()
 
-        f = ttk.LabelFrame(self.tab_det,
-                           text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
+        f = self._cfg_box = ttk.LabelFrame(
+            self.tab_det,
+            text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
         f.pack(fill="x", padx=8, pady=(theme.sp(6), theme.sp(6)))
 
         ttk.Button(f, text=L.t("Chọn file .fil…"), command=self.pick_fil).grid(
@@ -1065,12 +1066,16 @@ class App:
         ttk.Checkbutton(row2, text=L.t("dò chu kỳ mù (FFT) khi không có P"),
                         variable=self.det_search).pack(side="left")
 
-        # ---- ingest_guard: TÓM TẮT luôn hiện, CHI TIẾT mở rộng khi cần
-        self.guard_box = ttk.LabelFrame(
-            self.tab_det, text=L.t("ingest_guard — dữ liệu vào đã được nhận dạng thế nào"))
-        self.guard_box.pack(fill="x", padx=8, pady=(0, theme.sp(8)))
+        # ---- MỘT khung "THÔNG TIN" duy nhất: dòng 1 = ingest_guard (tóm tắt
+        # + nút Chi tiết), dòng 2 = M3. Trước đây hai LabelFrame riêng = 2 tiêu
+        # đề + 2 lớp lề ≈ 110 px mất cho hình, mà hình mới là thứ cần chỗ.
+        self.info_box = ttk.LabelFrame(
+            self.tab_det, text=L.t("Thông tin lần chạy"))
+        self.info_box.pack(fill="x", padx=8, pady=(0, theme.sp(4)))
+        self.guard_box = ttk.Frame(self.info_box)
+        self.guard_box.pack(fill="x", padx=theme.sp(4), pady=(theme.sp(2), 0))
         _gh = ttk.Frame(self.guard_box)
-        _gh.pack(fill="x", padx=theme.sp(6), pady=(theme.sp(4), 0))
+        _gh.pack(fill="x")
         self.guard_summary = ttk.Label(_gh, text=L.t("chưa có dữ liệu"),
                                        style="CardMuted.TLabel")
         self.guard_summary.pack(side="left")
@@ -1093,18 +1098,19 @@ class App:
             self.guard_lbl[_k] = _lbl
 
         # ---- M3: dò chu kỳ mù (FFT) — Top-N ứng viên
-        self.m3_box = ttk.LabelFrame(
-            self.tab_det, text=L.t("M3 — dò chu kỳ mù (FFT + sàng hài)"))
-        self.m3_box.pack(fill="x", padx=8, pady=(0, 8))
+        self.m3_box = ttk.Frame(self.info_box)
+        self.m3_box.pack(fill="x", padx=theme.sp(4), pady=(theme.sp(2), 0))
+        ttk.Label(self.m3_box, text=L.t("M3 — dò chu kỳ mù:"),
+                  style="CardMuted.TLabel").pack(side="left", padx=(0, 6))
         self.m3_lbl = ttk.Label(self.m3_box,
                                 text=L.t("chưa chạy — bấm Chạy phát hiện"),
                                 style="CardMuted.TLabel")
-        self.m3_lbl.pack(side="left", padx=8, pady=4)
+        self.m3_lbl.pack(side="left", padx=0, pady=2)
         ttk.Button(self.m3_box, text=L.t("Mở hình fig3"),
                    command=lambda: self.open_result_file("fig3_period.png")).pack(
             side="right", padx=6, pady=4)
 
-        bf = ttk.Frame(self.tab_det)
+        bf = self._btn_row = ttk.Frame(self.tab_det)
         bf.pack(fill="x", padx=8)
         self.btn_det = ttk.Button(bf, text=L.t("▶ Chạy phát hiện"), command=self.run_detect)
         self.btn_det.pack(side="left", padx=4, pady=4)
@@ -1117,45 +1123,51 @@ class App:
 
         # ---- hiển thị biểu đồ
         vf = ttk.LabelFrame(self.tab_det, text=L.t("Biểu đồ kết quả"))
-        vf.pack(fill="both", expand=True, padx=8, pady=8)
+        # KHÔNG dùng before=self._btn_row: trong pack, ai vào cavity trước được
+        # cấp kích thước trước. Chèn hình (expand=True) lên trước hàng nút thì
+        # hình ăn hết chỗ → hàng nút nhận 0 px và biến mất khỏi màn hình.
+        vf.pack(fill="both", expand=True, padx=8, pady=(6, 4))
         top = ttk.Frame(vf)
         top.pack(fill="x")
         ttk.Label(top, text=L.t("Hình:")).pack(side="left", padx=4)
         self.det_figpick = ttk.Combobox(top, values=[], width=42)
         self.det_figpick.pack(side="left", padx=4)
         self.det_figpick.bind("<<ComboboxSelected>>", self.show_selected_figure)
-        ttk.Button(top, text=L.t("Mở bằng trình xem ảnh"),
+        ttk.Button(top, text=L.t("Mở toàn hình bằng trình xem ảnh"),
                    command=self.open_figure_external).pack(side="left", padx=4)
-        ttk.Button(top, text=L.t("Mở SVG (zoom ∞)"),
-                   style="Next.TButton",
-                   command=self.open_figure_vector).pack(side="left", padx=4)
+        # Preview panel A/B/C/D; mở toàn hình bằng trình xem ảnh ngoài.
+        prow = ttk.Frame(vf)
+        prow.pack(fill="x", padx=4, pady=(2, 0))
+        ttk.Label(prow, text=L.t("Xem:"), style="Muted.TLabel").pack(
+            side="left", padx=(2, 6))
+        self.fig_panel = tk.StringVar(value="a")
+        self._panel_btns = {}
+        try:
+            import psr_render
+            _labels = [(k, L.t(n)) for k, n in psr_render.PANELS]
+        except Exception:                    # noqa: BLE001
+            _labels = [("a", "a"), ("b", "b"), ("c", "c"), ("d", "d")]
+        for key, lab in _labels:
+            b = ttk.Button(prow, text=f"{key.upper()} · {lab}",
+                           style="Ghost.TButton", width=16,
+                           command=lambda k=key: self.select_panel(k))
+            b.pack(side="left", padx=2)
+            self._panel_btns[key] = b
+        self._sync_panel_buttons()
 
         from matplotlib.figure import Figure
-        from matplotlib.backends.backend_tkagg import (
-            FigureCanvasTkAgg, NavigationToolbar2Tk)
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        # Preview tĩnh một panel; không gắn toolbar hoặc handler zoom.
         self.det_fig = Figure(figsize=(9, 5.2))
         self.det_canvas = FigureCanvasTkAgg(self.det_fig, master=vf)
-        self.det_canvas.get_tk_widget().pack(fill="both", expand=True)
-        # Thanh công cụ matplotlib: zoom khung, pan, lưu — zoom trong app là
-        # phóng ẢNH ĐÃ VẼ; muốn zoom vô hạn thì mở bản SVG/PDF (nút bên trên).
-        try:
-            self.det_toolbar = NavigationToolbar2Tk(
-                self.det_canvas, vf, pack_toolbar=False)
-            self.det_toolbar.update()
-            self.det_toolbar.pack(side="bottom", fill="x")
-        except Exception:                 # noqa: BLE001 — thiếu backend thì thôi
-            self.det_toolbar = None
-        # Zoom/pan bằng chuột + thanh trượt cuộn dữ liệu (Tkinter thuần, không
-        # webview/HTML): lăn chuột = zoom tại con trỏ, kéo = pan, nháy đúp = về
-        # khung ban đầu; 2 thanh trượt dưới hình = vị trí và độ rộng cửa sổ.
-        try:
-            import psr_zoom
-            self.det_zoom = psr_zoom.ZoomPan(self.det_canvas, self.det_fig)
-            self.det_sliders = psr_zoom.add_sliders(vf, self.det_zoom)
-            self.det_sliders.pack(side="bottom", fill="x", padx=6, pady=(0, 4))
-        except Exception:                 # noqa: BLE001 — thiếu module thì vẫn có toolbar
-            self.det_zoom = None
-            self.det_sliders = None
+        self._fig_hint = ttk.Label(vf, style="Muted.TLabel", text="")
+        self._fig_hint.pack(side="bottom", anchor="w", padx=8)
+        self._set_fig_hint("idle")
+        self._fig_host = vf
+        self._fig_aspect = 9.0 / 5.2     # tỉ lệ khung hiện tại (rộng : cao)
+        self.det_canvas.get_tk_widget().pack(fill="x", expand=False,
+                                             before=self._fig_hint)
+        vf.bind("<Configure>", lambda _e: self._fit_fig_canvas())
         self._refresh_figure_list()
 
     def _build_detect_steps(self) -> None:
@@ -1221,7 +1233,6 @@ class App:
                          ("Quan sát ban ngày", self.tgt_daytime),
                          ("Bảng SNR (mọi mục tiêu) × 5 cấu hình", self.tgt_snr),
                          ("Đại lượng suy ra (B, tuổi, Ė)", self.tgt_derived),
-                         ("Nguồn continuum khác", self.tgt_objects),
                          ("＋ Quản lý mục tiêu…", self.manage_targets)):
             ttk.Button(bf, text=txt, command=cmd).pack(side="left", padx=4, pady=4)
 
@@ -1240,19 +1251,21 @@ class App:
         host = parent if parent is not None else host
         f = ttk.LabelFrame(host, text=L.t("Dự đoán chuỗi linh kiện + tự fallback"))
         f.pack(fill="x", padx=8, pady=8)
-        ttk.Label(f, text=L.t("Băng:")).grid(row=0, column=0, padx=4, pady=4)
+        ttk.Button(f, text=L.t("Hồ sơ thiết bị POAM"),
+                   command=self.hw_poam_summary).grid(row=0, column=0, padx=4)
+        ttk.Label(f, text=L.t("Băng dự phòng SDR:" )).grid(row=0, column=1, padx=4, pady=4)
         self.hw_band = ttk.Combobox(f, values=["423", "1420"], width=6)
         self.hw_band.set("423")
-        self.hw_band.grid(row=0, column=1, padx=4)
-        ttk.Label(f, text=L.t("Mục đích:")).grid(row=0, column=2, padx=4)
+        self.hw_band.grid(row=0, column=2, padx=4)
+        ttk.Label(f, text=L.t("Mục đích chuỗi dự phòng:" )).grid(row=0, column=3, padx=4)
         self.hw_goal = ttk.Combobox(f, values=["pulsar", "hi", "unattended"],
                                     width=12)
         self.hw_goal.set("pulsar")
-        self.hw_goal.grid(row=0, column=3, padx=4)
-        ttk.Button(f, text=L.t("Phát hiện chuỗi"), command=self.hw_detect).grid(
-            row=0, column=4, padx=8)
+        self.hw_goal.grid(row=0, column=4, padx=4)
+        ttk.Button(f, text=L.t("Phát hiện chuỗi dự phòng"), command=self.hw_detect).grid(
+            row=0, column=5, padx=8)
         ttk.Button(f, text=L.t("Tự kiểm tra công thức"), command=self.hw_selfcheck).grid(
-            row=0, column=5, padx=4)
+            row=0, column=6, padx=4)
 
         lf = ttk.LabelFrame(host, text=L.t("Kết quả"))
         lf.pack(fill="both", expand=True, padx=8, pady=8)
@@ -1858,7 +1871,9 @@ class App:
             try:
                 self._last_metrics = psr_detect.detect(
                     path, dm_ref=dm, p_ref=p, nchan_iq=nchan_iq,
-                    search_period=want_search)
+                    search_period=want_search,
+                    # Cache render inputs only for panel preview; no zoom state.
+                    keep_figures=True)
             finally:
                 self.post(_restore)      # chạy ở MAIN thread
         self.run_bg(job, on_done=self._after_detect)
@@ -1881,7 +1896,7 @@ class App:
         rad = gate.get("radiometer") or {}
         ts = met.get("tsamp_s")
         branch = ("pulsar" if ts and ts <= 1e-3 else
-                  "HI/continuum" if ts and ts > 10e-3 else "?")
+                  "quá chậm" if ts and ts > 10e-3 else "?")
         self.guard_lbl["fmt"].configure(
             text="{} ({})".format(kind, "INFERRED" if inferred else "EXACT"))
         self.guard_lbl["stage"].configure(text=str(stg))
@@ -1992,64 +2007,112 @@ class App:
             self.det_figpick.set(figs[-1])
             self.show_selected_figure()
 
-    def _reset_zoom_home(self):
-        """Sau khi vẽ hình mới, lấy khung nhìn hiện tại làm mốc Reset."""
+    HINT_MODES = {
+        "vector": "Preview panel đã chọn.",
+        "raster": "Preview PNG panel đã chọn.",
+        "idle": "Chọn panel A/B/C/D để xem.",
+    }
+
+    def select_panel(self, key: str) -> None:
+        """Chọn một trong bốn panel để preview."""
+        if key not in {"a", "b", "c", "d"}:
+            return
+        self.fig_panel.set(key)
+        self._sync_panel_buttons()
+        self.show_selected_figure()
+
+    def _sync_panel_buttons(self) -> None:
+        current = getattr(self, "fig_panel", tk.StringVar(value="a")).get()
+        for key, button in getattr(self, "_panel_btns", {}).items():
+            try:
+                button.configure(style="NavSel.TButton" if key == current
+                                 else "Ghost.TButton")
+            except tk.TclError:
+                pass
+
+    def _set_fig_hint(self, mode: str) -> None:
         try:
-            if getattr(self, "det_zoom", None):
-                self.det_zoom.axes = [a for a in self.det_fig.axes]
-                self.det_zoom.active = self.det_zoom.axes[0] if self.det_zoom.axes else None
-                self.det_zoom.refresh_home()
+            self._fig_hint.configure(text=L.t(self.HINT_MODES.get(
+                mode, self.HINT_MODES["idle"])))
+            self._fig_hint.configure(style="Muted.TLabel")
+        except Exception:                 # noqa: BLE001
+            pass
+
+    def _fit_fig_canvas(self) -> None:
+        """Khoá chiều cao khung xem theo tỉ lệ GỐC của hình — không kéo dãn.
+
+        FigureCanvasTkAgg tự đổi kích thước Figure theo widget; nếu widget dàn
+        theo cửa sổ thì panel bị méo (đã gặp: (c)/(d) bị kéo dãn ngang). Vì
+        vậy: chiều rộng theo khung chứa, chiều cao = rộng / tỉ lệ gốc, không
+        vượt chiều cao khung chứa.
+        """
+        try:
+            host = getattr(self, "_fig_host", None)
+            widget = self.det_canvas.get_tk_widget()
+            if host is None:
+                return
+            pw = max(host.winfo_width(), 240)
+            ph = max(host.winfo_height(), 160)
+            h = int(min(ph, pw / max(self._fig_aspect, 1e-6)))
+            widget.configure(height=max(h, 160))
         except Exception:                 # noqa: BLE001
             pass
 
     def show_selected_figure(self, event=None):
+        """Hiển thị preview một panel; không có cơ chế zoom trong ứng dụng."""
         name = self.det_figpick.get()
         path = os.path.join(RESULTS_DIR, name) if name else None
         if not path or not os.path.exists(path):
             return
         try:
+            import psr_render
+            _m = getattr(self, "_last_metrics", None) or {}
+            _rd = _m.get("_render")
+            _out = str(_m.get("out_dir") or "").rstrip("/" + chr(92))
+            _stem = os.path.basename(_out)
+            _dir_sel = os.path.dirname(name.replace("/", os.sep))
+            if (_rd is not None and _stem and _dir_sel == _stem and
+                    os.path.basename(name) == "fig2_detection.png"):
+                _key = self.fig_panel.get()
+                self._fig_aspect = float(getattr(psr_render, "PANEL_ASPECT",
+                                                 {}).get(_key, 9.0 / 5.2))
+                psr_render.draw_panel(_rd, self.det_fig, which=_key)
+                self._fit_fig_canvas()
+                self.det_canvas.draw_idle()
+                self._fig_mode = "vector"
+                self._set_fig_hint("vector")
+                return
+            # Preview old runs as the selected panel crop from the saved figure.
             import matplotlib.image as mpimg
             self.det_fig.clear()
             ax = self.det_fig.add_subplot(111)
             img = mpimg.imread(path)
-            ax.imshow(img)
-            ax.axis("off")
-            self.det_fig.tight_layout()
+            h, w = img.shape[:2]
+            crops = {"a": (0.0, 0.0, 0.5, 0.5), "b": (0.5, 0.0, 1.0, 0.5),
+                     "c": (0.0, 0.5, 0.5, 1.0), "d": (0.5, 0.5, 1.0, 1.0)}
+            x0, y0, x1, y1 = crops.get(self.fig_panel.get(), crops["a"])
+            _crop = img[int(y0*h):int(y1*h), int(x0*w):int(x1*w)]
+            self._fig_aspect = (_crop.shape[1] / max(_crop.shape[0], 1)
+                                if _crop.size else 9.0 / 5.2)
+            ax.imshow(_crop, aspect="equal")
+            ax.set_axis_off()
+            self.det_fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+            self._fit_fig_canvas()
             self.det_canvas.draw_idle()
+            self._fig_mode = "raster"
+            self._set_fig_hint("raster")
         except Exception as e:
-            self.log(f"Không hiển thị được hình: {e!r}", "err")
-
-    def open_figure_vector(self):
-        """Mở bản VECTOR SVG của hình đang chọn.
-
-        SVG/PDF là vector: phóng to bao nhiêu cũng không vỡ nét, chữ chọn/copy
-        được — dán thẳng vào báo cáo hay slide. Nếu lần chạy cũ chỉ có PNG thì
-        báo rõ để chạy lại phát hiện (bản mới tự ghi kèm SVG/PDF).
-        """
-        name = self.det_figpick.get()
-        if not name:
-            messagebox.showinfo(L.t("Chưa có hình"), L.t("Hãy chạy phát hiện trước."))
-            return
-        stem = os.path.splitext(name)[0]
-        for ext in (".svg",):
-            p = os.path.join(RESULTS_DIR, stem + ext)
-            if os.path.exists(p):
-                try:
-                    os.startfile(p)       # SVG → mở bằng trình duyệt/Inkscape
-                    self.log(f"Đã mở bản vector: {os.path.basename(p)}", "ok")
-                except OSError as e:
-                    messagebox.showerror(L.t("Lỗi"), f"Không mở được {p}: {e}")
-                return
-        messagebox.showinfo(
-            L.t("Chưa có bản vector"),
-            L.t("Hình này chỉ có PNG (lần chạy cũ). Hãy bấm Chạy phát hiện lại "
-                "để có kèm .svg."))
+            self.log(f"Không hiển thị được panel: {e!r}", "err")
 
     def open_figure_external(self):
+        """Mở nguyên PNG đã lưu bằng trình xem ảnh hệ thống."""
         name = self.det_figpick.get()
         p = os.path.join(RESULTS_DIR, name) if name else None
         if p and os.path.exists(p):
-            os.startfile(p)
+            try:
+                os.startfile(p)
+            except OSError as e:
+                messagebox.showerror(L.t("Lỗi"), f"Không mở được ảnh: {e}")
 
     def _result_file(self, suffix):
         """Tệp trong thư mục kết quả của LẦN CHẠY gần nhất (results/<ngày>_<giờ>)."""
@@ -2107,9 +2170,6 @@ class App:
     def tgt_derived(self):
         self.run_into(self.tgt_out, lambda: psr_targets.print_derived())
 
-    def tgt_objects(self):
-        self.run_into(self.tgt_out, lambda: psr_targets.print_objects())
-
     # ------------------------------------------------------------ TAB 4 actions
     def hw_detect(self):
         band = self.hw_band.get()
@@ -2117,13 +2177,29 @@ class App:
 
         def job():
             import psr_hw
+            # Explicitly label this as a generic fallback chain, not the POAM
+            # rack/feed. The dedicated POAM profile has its own button.
             c = psr_hw.detect_chain(band, goal=goal)
-            txt = c.summary()
+            txt = ("=== CHUỖI SDR DỰ PHÒNG (mô hình generic; không xác nhận đã nối vào POAM) ===\\n"
+                   + c.summary())
             self.post(lambda: (self.hw_out.configure(state="normal"),
                                self.hw_out.delete("1.0", "end"),
                                self.hw_out.insert("end", txt),
                                self.hw_out.configure(state="disabled")))
         self.run_bg(job)
+
+    def hw_poam_summary(self):
+        """Hiển thị profile manual/field-state tách khỏi generic SDR fallback."""
+        import psr_hw
+        self.hw_out.configure(state="normal")
+        self.hw_out.delete("1.0", "end")
+        self.hw_out.insert("end", psr_hw.poam_profile_summary() + "\n")
+        self.hw_out.configure(state="disabled")
+        self.nb.select(self.tab_set)
+        try:
+            self.settings_sub.select(3)  # Phần cứng sub-tab
+        except Exception:               # noqa: BLE001
+            pass
 
     def hw_selfcheck(self):
         def job():

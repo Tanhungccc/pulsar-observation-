@@ -11,7 +11,9 @@ Chạy TRƯỚC mọi thuật toán thiên văn:
          > 3 dB → flatten + edge_zap; phẳng 0 dB → TẮT flatten; đỉnh giữa băng
          → DC notch; có gap → xử lý theo đoạn; LOCAL_CLOCK → mở rộng dải tìm P.
   Gatekeeper  bão hoà ADC · radiometer · spectral kurtosis · nhiệt độ/T_sys.
-  Tagging  VALID / RFI_HEAVY / GAIN_DRIFT / SATURATED / SPECTRUM_1D / CORRUPTED.
+  Tagging  VALID / RFI_HEAVY / GAIN_DRIFT / SATURATED / SPECTRUM_1D / TOO_SLOW / CORRUPTED.
+  Từ chối (ok=False): SPECTRUM_1D (phổ 1D, không có trục thời gian) và TOO_SLOW
+  (Δt > 10 ms, không đủ độ phân giải thời gian để tìm pulsar). Không định tuyến nhánh khác.
 
 Bốn quy tắc I/O bắt buộc (chạy thực chiến 4–5 h, dữ liệu hàng chục GB):
   Q1  chỉ đọc 3 lát (đầu/giữa/cuối), tối đa vài MB — không bao giờ nạp cả file;
@@ -41,13 +43,14 @@ SK_SIGMA = 3.0
 TSYS_FACTOR = 1.5
 DT_LNA_LIMIT = 2.0         # °C
 DT_PULSAR_MAX = 1e-3       # s
-DT_HI_MIN = 10e-3          # s
+DT_TOO_SLOW = 10e-3         # s: Δt lớn hơn mức này → từ chối (không phải dữ liệu pulsar)
 NAN_REPAIR = 0.001         # < 0,1 % → nội suy
 NAN_CORRUPT = 0.01         # > 1 % → CORRUPTED
 
 MAX_SNIFF_BYTES = 8_000_000
 SNIFF_SLICES = ("head", "mid", "tail")
 DISK_MARGIN = 1.2
+_REJECT_TAGS = {"UNREADABLE", "SATURATED", "CORRUPTED", "SPECTRUM_1D", "TOO_SLOW"}
 DISK_MIN_FREE_MB = 500
 
 _DT_MAP = {"ci8": np.int8, "cu8": np.uint8, "ci16": np.int16, "cu16": np.uint16,
@@ -370,11 +373,13 @@ def fingerprint(sample, tsamp_s: float | None = None,
         metrics["tsamp_s"] = tsamp_s
         if tsamp_s <= DT_PULSAR_MAX:
             actions.append("route:pulsar")
-        elif tsamp_s > DT_HI_MIN:
-            actions.append("route:hi_continuum")
+        elif tsamp_s > DT_TOO_SLOW:
+            metrics["pulsar_ok"] = False
+            warnings.append(f"Δt = {tsamp_s*1e3:.1f} ms > 10 ms: không đủ độ phân giải "
+                            f"thời gian để tìm pulsar → TỪ CHỐI")
         else:
-            warnings.append(f"Δt = {tsamp_s*1e3:.1f} ms giữa 1–10 ms: quá chậm cho "
-                            f"pulsar, quá nhanh cho HI")
+            warnings.append(f"Δt = {tsamp_s*1e3:.1f} ms giữa 1–10 ms: chậm cho "
+                            f"pulsar mili-giây")
 
     if stage != "RAW_IQ" and a.size:
         spec = _median_spectrum(a)
@@ -540,8 +545,8 @@ def inspect(path: str, meta: dict | None = None, sample_rows: int = 2000) -> dic
             if tab["kind"] == "spectrum_1d":
                 rep["tags"].append("SPECTRUM_1D")
                 rep["warnings"].append(
-                    "phổ 1D (chỉ có công suất) → đủ cho HI/continuum, KHÔNG đủ "
-                    "trục thời gian để tìm pulsar")
+                    "phổ 1D (chỉ có công suất): KHÔNG đủ trục thời gian để tìm "
+                    "pulsar → TỪ CHỐI")
             else:
                 rep["tags"].append("MATRIX_2D")
                 if tab["nrow"] >= 2:
@@ -621,8 +626,10 @@ def inspect(path: str, meta: dict | None = None, sample_rows: int = 2000) -> dic
             tags.add("GAIN_DRIFT")     # gần như mọi kênh → nền không dừng
     if gate["thermal"]["tag"] == "DEGRADED":
         tags.add("DEGRADED")
+    if rep["metrics"].get("pulsar_ok") is False:
+        tags.add("TOO_SLOW")
     rep["tags"] = sorted(tags or {"VALID"})
-    rep["ok"] = not (tags & {"UNREADABLE", "SATURATED", "CORRUPTED"})
+    rep["ok"] = not (tags & _REJECT_TAGS)
     return rep
 
 
@@ -676,10 +683,14 @@ def analyze_array(dyn, header: dict, meta: dict | None = None,
             tags.add("RFI_HEAVY")      # một phần kênh → RFI hẹp băng
         elif _frac > 0.5:
             tags.add("GAIN_DRIFT")     # gần như mọi kênh → nền không dừng
+    if x.ndim < 2:
+        tags.add("SPECTRUM_1D")
+    if rep["metrics"].get("pulsar_ok") is False:
+        tags.add("TOO_SLOW")
     if gate["thermal"]["tag"] == "DEGRADED":
         tags.add("DEGRADED")
     rep["tags"] = sorted(tags or {"VALID"})
-    rep["ok"] = not (tags & {"SATURATED", "CORRUPTED", "UNREADABLE"})
+    rep["ok"] = not (tags & _REJECT_TAGS)
     return rep
 
 
@@ -705,8 +716,8 @@ def self_check() -> list:
         bad.append(f"power phẳng: {fp['stage']} {fp['actions']}")
     if "route:pulsar" not in fingerprint(pw, tsamp_s=2e-4)["actions"]:
         bad.append("Δt 0,2 ms không route pulsar")
-    if "route:hi_continuum" not in fingerprint(pw, tsamp_s=1.0)["actions"]:
-        bad.append("Δt 1 s không route HI")
+    if fingerprint(pw, tsamp_s=1.0)["metrics"].get("pulsar_ok") is not False:
+        bad.append("Δt 1 s không bị từ chối")
 
     n = 256
     x = np.linspace(-1, 1, n)

@@ -102,8 +102,8 @@ def read_table_as_dyn(path: str, max_seconds: float | None = None):
                          + "; ".join(tab["problems"]))
     if tab["kind"] == "spectrum_1d":
         raise ValueError(
-            "đây là phổ 1D (chỉ có trục tần số): đủ cho HI/continuum nhưng "
-            "KHÔNG đủ trục thời gian để tìm pulsar. Cần xuất ma trận "
+            "đây là phổ 1D (chỉ có trục tần số): KHÔNG đủ trục thời gian để "
+            "tìm pulsar. Cần xuất ma trận "
             "time × frequency (mỗi dòng là một mốc thời gian).")
     arr = tab["rows"]
     tcol = arr[:, 0] if tab.get("time_axis") is not None else None
@@ -195,14 +195,14 @@ def safe_stem(name: str) -> str:
     return s
 
 
-def _savefig(fig, path: str, tries: int = 4) -> None:
-    """Ghi hình ra PNG **kèm SVG/PDF vector** (zoom không vỡ nét).
+def _savefig(fig, path: str, tries: int = 4, dpi: int | None = None) -> None:
+    """Ghi hình ra PNG (xem nhanh) + SVG (vector, zoom không vỡ nét).
 
     Thử lại: Windows/AV có thể khoá file trong tích tắc.
     """
     try:
         import psr_plots as _pp
-        _pp.save_all(fig, path, tries=tries)
+        _pp.save_all(fig, path, tries=tries, dpi=dpi)
         return
     except Exception:               # noqa: BLE001 — vẫn phải có PNG
         pass
@@ -222,9 +222,21 @@ def _savefig(fig, path: str, tries: int = 4) -> None:
 def _jsonify(o):
     """Chuyển numpy bool/int/float → kiểu Python chuẩn để json.dump không lỗi."""
     if isinstance(o, dict):
-        return {k: _jsonify(v) for k, v in o.items()}
+        out = {}
+        for k, v in o.items():
+            try:
+                json.dumps(k)                        # khoá phải ghi được
+            except TypeError:
+                continue
+            jv = _jsonify(v)
+            if jv is _SKIP:
+                continue                             # value không serialisable
+            if isinstance(jv, dict) and not jv and k.startswith("_"):
+                continue                             # dict rỗng do lọc hết → bỏ
+            out[k] = jv
+        return out
     if isinstance(o, (list, tuple)):
-        return [_jsonify(v) for v in o]
+        return [x for x in (_jsonify(v) for v in o) if x is not _SKIP]
     if isinstance(o, np.bool_):
         return bool(o)
     if isinstance(o, np.integer):
@@ -233,7 +245,24 @@ def _jsonify(o):
         return float(o)
     if isinstance(o, np.ndarray):
         return o.tolist()
+    if isinstance(o, (str, int, float, bool)) or o is None:
+        return o
+    try:
+        json.dumps(o)                                # thử ghi được không
+    except (TypeError, ValueError):
+        return _SKIP                                 # → đánh dấu bỏ qua
     return o
+
+
+#: vật đánh dấu “mục này không vào JSON được” (Figure, hàm, đối tượng…)
+class _SkipMarker:
+    __slots__ = ()
+
+    def __repr__(self):                              # noqa: D401
+        return "<skip>"
+
+
+_SKIP = _SkipMarker()
 
 
 
@@ -274,7 +303,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
            nchan_iq: int = 256, navg_iq: int = 16,
            out_name: str | None = None, search_period: bool = False,
            pmin_s: float = 0.0015, pmax_s: float = 10.0,
-           top_n: int = 10) -> dict:
+           top_n: int = 10, keep_figures: bool = False) -> dict:
     os.makedirs(RESULTS, exist_ok=True)
     # GOM sản phẩm của MỘT lần chạy vào MỘT thư mục: tên theo file dữ liệu
     # (data/<tên>.fil → results/<tên>/), mặc định theo ngày nếu không có tên.
@@ -520,9 +549,8 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     print(f"→ A7 tìm xung: {len(pulses)} xung > {pulse_thresh}σ")
     m["stage"]["n_pulses"] = len(pulses)
 
-    # ---------------- A11c: DM từng xung + LỌC NHẤT QUÁN DM (chống RFI hẹp băng)
-    # RFI hẹp băng sống sót bước zero-DM nhưng cho DM dải con vô nghĩa;
-    # xung thật phải cho DM KHỚP với DM quét → đây là bộ lọc cuối cùng.
+    # ---------------- A11c: đo DM từng pulse và so với DM scan.
+    # Không suy ra nguyên nhân vật lý (RFI/pulse shape/edge loss) chỉ từ fit.
     dm_tol = max(3.0, 0.12 * dm_best, dm_res_data)
     dm_list, rejected = [], []
     # chỉ đo DM dải con cho TOP-N xung mạnh nhất: mỗi phép đo là một lần quét
@@ -540,7 +568,11 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
                                   width_samples=max(2, p["width_samples"]))
             p["dm_sub"] = round(r["dm"], 3)
             p["dm_sub_err"] = round(r["dm_err"], 3)
-            consistent = abs(r["dm"] - dm_best) <= dm_tol
+            p["dm_sub_n_used"] = int(r.get("n_used", 0))
+            p["dm_sub_resid_ms"] = [round(float(v) * 1e3, 3)
+                                     for v in r.get("resid_s", [])]
+            p["dm_sub_fit_method"] = r.get("fit_method")
+            consistent = abs(r["dm"] - dm_best) <= max(dm_tol, 3 * r["dm_err"])
             p["dm_consistent"] = bool(consistent)
             if consistent:
                 dm_list.append(r["dm"])
@@ -556,12 +588,27 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     # xung chưa được đo DM dải con: coi là ứng viên "chưa xác nhận", không loại
     for p in pulses:
         p.setdefault("dm_consistent", None)
-    print(f"→ A11c DM dải con (nhất quán ±{dm_tol:.1f}): "
-          f"{len(pulses_ok)}/{len(pulses)} xung"
-          + (f" | DM = {np.mean(dm_list):.2f} ± {np.std(dm_list):.2f}"
-             if dm_list else ""))
+    _dm_jack = [p.get("dm_sub_err") for p in pulses_ok
+                if p.get("dm_sub_err") is not None]
+    # Pool only statistically informative, catalogue/scan-consistent estimates;
+    # weak/noisy subband fits may be marked candidate but must not dominate the
+    # reported ensemble mean.
+    _dm_pool = [p["dm_sub"] for p in pulses_ok
+                if p.get("dm_sub_err") is not None
+                and p["dm_sub_err"] <= max(1.5, 0.1 * max(dm_best, 1.0))]
+    m["stage"]["dm_subband_n_precise"] = len(_dm_pool)
+    if _dm_pool:
+        m["stage"]["dm_subband_mean_precise"] = round(float(np.mean(_dm_pool)), 3)
+        m["stage"]["dm_subband_std_precise"] = round(float(np.std(_dm_pool)), 3)
+    print(f"→ A11c DM dải con (so sánh DM quét; ngưỡng {dm_tol:.1f}): "
+          f"{len(pulses_ok)}/{len(pulses)} ứng viên; "
+          f"{len(_dm_pool)} ước lượng đủ chính xác"
+          + (f" | DM precise={np.mean(_dm_pool):.2f} ± {np.std(_dm_pool):.2f}; "
+             f"jackknife trung bình≈{np.mean([p['dm_sub_err'] for p in pulses_ok if p.get('dm_sub_err') is not None]):.2f}"
+             if _dm_pool else ""))
     if rejected:
-        print(f"   loại {len(rejected)} ứng viên không nhất quán DM (RFI hẹp băng)")
+        print(f"   {len(rejected)} ứng viên DM lệch/không phù hợp; nguyên nhân "
+              "chưa xác định (không tự gán RFI khi chỉ có fit residual).")
 
     # ---------------- KIỂM TRA CÙNG PHA THEO P (bằng chứng cuối)
     # Xung thật của cùng pulsar phải đến CÙNG PHA (mod P); RFI thì không.
@@ -589,11 +636,19 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         else:
             print("→ không tìm được chuỗi xung cùng pha")
     m["stage"]["n_pulses_consistent"] = len(pulses_ok)
+    m["stage"]["n_pulses_dm_inconsistent"] = len(rejected)
+    # Legacy metric key retained for compatibility; means DM-inconsistent/fit-failed,
+    # not a confirmed RFI count.
     m["stage"]["n_pulses_rejected_rfi"] = len(rejected)
     m["stage"]["dm_tolerance"] = round(dm_tol, 2)
-    if dm_list:
+    if _dm_pool:
+        m["stage"]["dm_subband_mean"] = round(float(np.mean(_dm_pool)), 3)
+        m["stage"]["dm_subband_std"] = round(float(np.std(_dm_pool)), 3)
+    elif dm_list:
+        # Kept for backward compatibility, explicitly low-confidence.
         m["stage"]["dm_subband_mean"] = round(float(np.mean(dm_list)), 3)
         m["stage"]["dm_subband_std"] = round(float(np.std(dm_list)), 3)
+        m["stage"]["dm_subband_low_confidence"] = True
 
     # ---------------- M3: DÒ CHU KỲ MÙ (FFT + cộng hài + sàng hài → Top-N)
     if search_period or p_ref is None:
@@ -752,24 +807,29 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     dyn_dd = np.zeros((dyn_z.shape[0], n_valid))
     for i, sh in enumerate(shifts):
         dyn_dd[i, :] = dyn_z[i, sh: sh + n_valid]
+    _f_band = (f"{f_g.min():.0f} MHz (1 kênh)"
+               if abs(float(f_g.max() - f_g.min())) < 1e-6
+               else f"{f_g.min():.0f}–{f_g.max():.0f} MHz")
     pp.plot_waterfall(dyn_z[:, :n_valid], f_g, tsamp, ax=ax[0],
                       title=f"(a) Waterfall CHƯA khử tán sắc — {_src1}, "
-                            f"{f_g.min():.0f}–{f_g.max():.0f} MHz, "
-                            f"tsamp = {tsamp*1e6:.0f} µs")
+                            f"{_f_band}, tsamp = {tsamp*1e6:.0f} µs")
     pp.plot_waterfall(dyn_dd, f_g, tsamp, ax=ax[1],
                       title=f"(b) ĐÃ khử tán sắc — DM = {dm_best:.2f} "
                             f"pc cm$^{{-3}}$")
     fig.tight_layout()
     pp.finalize(fig)
     f1 = os.path.join(out_dir, "fig1_overview.png")
-    _savefig(fig, f1); plt.close(fig)
+    # fig1 có waterfall (raster lớn): 150 dpi là đủ nhìn, 300 dpi làm tệp
+    # PNG phình tới ~8 MB — tốn chỗ khi chạy 5 h liên tục.
+    _savefig(fig, f1, dpi=150)
+    plt.close(fig)
 
     # ================= HÌNH 2: 4 panel phát hiện
     fig, ax = plt.subplots(2, 2, figsize=(12.0, 8.2))
     t_all = np.arange(len(s_dd)) * tsamp
     pp.plot_timeseries(t_all, (s_dd - np.median(s_dd)),
                        peaks=pulses_ok, ax=ax[0, 0],
-                       ylabel="công suất dư (đ.v. chuẩn hoá)",
+                       ylabel="cường độ tương đối (đã trừ nền, chuẩn hoá)",
                        title="(a) Chuỗi thời gian sau khử tán sắc")
     _scan_title = ("(b) Quét DM — fold tại P" if use_fold_scan
                    else "(b) Quét DM — boxcar đa độ rộng")
@@ -778,6 +838,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
         _scan_title += f" — KHÔNG phát hiện (đỉnh {snr_dm[k]:.1f}σ < {pulse_thresh:.0f}σ)"
     pp.plot_dm_curve(dm_grid, snr_dm,
                      dm_meas=dm_best if _detected else None, dm_true=dm_ref,
+                     ylabel=("SNR fold (σ)" if use_fold_scan else "SNR lọc khớp (σ)"),
                      ax=ax[0, 1], title=_scan_title, threshold=pulse_thresh)
     prof_show = s_dd - np.median(s_dd)
     met = {"width_ms": pulses_ok[0]["width_ms"] if pulses_ok else None,
@@ -809,17 +870,22 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     else:
         _rej = [p for p in pulses if p.get("dm_consistent") is False]
         if _rej:
-            _ttl = f"(c) SNR theo thời gian — {len(_rej)} ứng viên bị loại (DM lệch)"
+            _ttl = f"(c) SNR theo thời gian — {len(_rej)} ứng viên lệch DM"
         else:
             _ttl = "(c) SNR theo thời gian — không mẫu nào vượt ngưỡng"
         _note = ""
         pp.plot_boxcar_snr(s_dd, tsamp, threshold=pulse_thresh, ax=ax[1, 0],
                            candidates=_rej or None, note=_note, title=_ttl)
+    _sb = None
     if pulses_ok and pulses_ok[0].get("dm_sub") is not None:
         r = subband_dm_single(dyn_z, f_g, tsamp, pulses_ok[0]["t_s"],
                               window_s=0.05, nsub=8, dm_guess=dm_best,
                               width_samples=max(2, pulses_ok[0]["width_samples"]))
         lags_rel = (r["lags_s"] - r["lags_s"][-1]) * 1e3    # so với dải cao nhất
+        _sb = dict(freqs_mhz=np.asarray(r["freqs_mhz"], float),
+                   lags_ms=np.asarray(lags_rel, float),
+                   dm=float(r["dm"]), dm_err=float(r["dm_err"]),
+                   t0_ms=float(pulses_ok[0]["t_s"] * 1e3))
         pp.plot_subband_lags(r["freqs_mhz"], lags_rel,
                              r["dm"], r["dm_err"],
                              ax=ax[1, 1],
@@ -828,7 +894,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     elif fold_info is not None:
         pp.plot_fold_snr_vs_dm(dm_grid, snr_dm, fold_info, ax=ax[1, 1],
                                threshold=pulse_thresh,
-                               title="(d) SNR fold theo DM (phóng quanh DM tốt nhất)")
+                               title="(d) SNR fold quanh DM tốt nhất")
     else:
         ax[1, 1].text(0.5, 0.5, "không tìm thấy xung riêng lẻ để đo trễ dải con",
                       ha="center", va="center", fontsize=9, color="0.35",
@@ -842,7 +908,22 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     src = (h.get("source") or "").strip()
     if src.lower() in ("", "temp", "unknown", "none", "test", "empty"):
         src = os.path.splitext(os.path.basename(path))[0]
-    supt = f"Phát hiện pulsar trên dữ liệu THẬT — {src}" + (f" ({tel})" if tel else "")
+    # Provenance chỉ gắn khi có metadata/header xác nhận; tên file tự nó không
+    # chứng minh dữ liệu quan sát. TEMP/unknown/test luôn hiện rõ là chưa biết.
+    _raw = str(h.get("rawdatafile") or "").lower()
+    _prov = "unknown (chưa xác minh)"
+    if ("/data/stress/" in str(path).lower().replace("\\", "/")
+            or "/selftest" in str(path).lower().replace("\\", "/")
+            or "/extra/" in str(path).lower().replace("\\", "/")):
+        _prov = "test/derived dataset"
+    elif str(h.get("source") or "").upper() in ("TEMP", "TEST", "UNKNOWN"):
+        _prov = "unknown (header says TEMP/TEST)"
+    elif any(k in _raw for k in ("greenburst", "gbt", "zenodo")):
+        _prov = "observational (header metadata)"
+    supt = f"Phát hiện pulsar — {src}" + (f" ({tel})" if tel else "")
+    if _prov != "unknown (chưa xác minh)":
+        supt += f" · {_prov}"
+    m["provenance"] = _prov
     fig.suptitle(supt, fontsize=11.5)
     fig.tight_layout()
     # KIỂM TRA BỐ CỤC bằng hình học thật: chú giải đè dữ liệu / chữ tràn khung
@@ -854,8 +935,22 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
             print(f"      [{it['kind']}] {it['panel']}: {it['detail']}")
     else:
         print("   ✔ bố cục hình: chú giải/chú thích không đè dữ liệu, không tràn khung")
+    # Cache các mảng ĐÃ TÍNH để GUI vẽ lại bằng Figure TkAgg trong cửa sổ lớn;
+    # dữ liệu/thuật toán không bị thay đổi.
+    if keep_figures:
+        try:
+            import psr_render
+            m["_render"] = psr_render.collect_render_data(
+                s_dd=s_dd, tsamp=tsamp, pulses=pulses, pulses_ok=pulses_ok,
+                dm_grid=dm_grid, snr_dm=snr_dm, dm_best=dm_best, dm_ref=dm_ref,
+                pulse_thresh=pulse_thresh, use_fold_scan=use_fold_scan,
+                fold_info=fold_info, subband=_sb, header=h, path=path, met=met,
+                provenance=_prov)
+        except Exception as _re:            # noqa: BLE001 — PNG vẫn là chính
+            print(f"   (không cache dữ liệu vẽ: {_re!r})")
     f2 = os.path.join(out_dir, "fig2_detection.png")
-    _savefig(fig, f2); plt.close(fig)
+    _savefig(fig, f2, dpi=300)          # toàn đường/marker → 300 dpi vẫn nhẹ
+    plt.close(fig)
 
     m["files"] = [os.path.basename(f1), os.path.basename(f2)]
     # ---- M3: hình dò chu kỳ mù (nếu có ứng viên)
@@ -872,7 +967,7 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
             _figp.tight_layout()
             pp.finalize(_figp)
             _f3 = os.path.join(out_dir, "fig3_period.png")
-            _savefig(_figp, _f3)
+            _savefig(_figp, _f3, dpi=300)
             plt.close(_figp)
             m["files"].append(os.path.basename(_f3))
             print(f"→ hình dò chu kỳ: {os.path.basename(_f3)}")
@@ -883,19 +978,23 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
 
     # ---------------- báo cáo chữ
     rep = []
-    rep.append("BÁO CÁO PHÁT HIỆN PULSAR — DỮ LIỆU THẬT")
+    rep.append("BÁO CÁO PHÁT HIỆN PULSAR — phân tích tín hiệu")
     rep.append(f"File: {path}")
-    rep.append(f"Nguồn: {h['source']} | {h['nchans']} kênh | "
+    rep.append(f"Provenance: {_prov}")
+    rep.append(f"Header source: {h['source']} | provenance: {_prov} | "
+               f"{h['nchans']} kênh | "
                f"{freqs.min():.1f}–{freqs.max():.1f} MHz | {h['t_s']:.2f} s | "
                f"tsamp {tsamp*1e6:.0f} µs")
     rep.append(f"Kênh giữ/cắt: {good.sum()}/{(~good).sum()} | "
                f"mẫu zero-DM cắt: {bad_t.sum()} ({100*bad_t.mean():.1f}%)")
-    rep.append(f"DM (quét): {dm_best:.2f} | DM (dải con): "
+    rep.append(f"DM boxcar scan: {dm_best:.2f} | robust subband DM: "
                f"{m['stage'].get('dm_subband_mean', float('nan')):.2f} ± "
-               f"{m['stage'].get('dm_subband_std', float('nan')):.2f}"
+               f"{m['stage'].get('dm_subband_std', float('nan')):.2f} "
+               "pc cm^-3 (method: Theil-Sen + leave-one-subband jackknife)"
                + (f" | tham chiếu: {dm_ref}" if dm_ref else ""))
-    rep.append(f"Số xung phát hiện: {len(pulses)} | nhất quán DM: {len(pulses_ok)} | "
-               f"loại RFI hẹp băng: {len(rejected)}")
+    rep.append(f"Số pulse candidates: {len(pulses)} | DM-consistent: {len(pulses_ok)} | "
+               f"DM-inconsistent/failed subband fit: {len(rejected)} "
+               "(không tự suy ra nguyên nhân RFI)")
     rep.append("  (bề rộng boxcar = độ rộng cửa sổ lọc khớp theo lưới; "
                "W50/W25 = đo trực tiếp trên hồ sơ xung → KHÔNG phụ thuộc lưới)")
     for i, p in enumerate(pulses_ok):

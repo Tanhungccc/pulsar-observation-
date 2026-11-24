@@ -4,7 +4,6 @@ psr_targets.py — Danh mục mục tiêu + khả năng quan sát từ TP.HCM + 
 
 Chạy:
     python psr_targets.py                # bảng pulsar cho từng cấu hình
-    python psr_targets.py --objects      # bảng nguồn continuum / thiên hà khác
     python psr_targets.py --csv          # ghi results/targets.csv
 
 Ghi chú: thông lượng S là GIÁ TRỊ XẤP XỈ theo bậc (tra ATNF để lấy số chính xác;
@@ -95,34 +94,6 @@ PULSARS = [
 for _t in PULSARS:
     _t["w408"] = round(w50_at(_t["w1400"], _t["dm"], 423.0), 2)
 
-OBJECTS = [
-    dict(name="Mặt Trời (quiet)", ra=None, dec=None, flux=400000, f=1420,
-         note="~4e5 Jy; KHÔNG trỏ trực tiếp lâu — nguy cơ bão hoà/hỏng LNA"),
-    dict(name="Cas A (Taurus A)", ra=350.85, dec=58.815, flux=2700, f=1420,
-         note="Chuẩn chính; T_A ~ 5.8 K"),
-    dict(name="Cyg A", ra=299.868, dec=40.7339, flux=1600, f=1420,
-         note="Chuẩn phụ"),
-    dict(name="Tau A (M1)", ra=83.633, dec=22.0145, flux=1000, f=1420,
-         note="Cùng hướng Crab"),
-    dict(name="Vir A (M87)", ra=187.7059, dec=12.3911, flux=210, f=1420,
-         note="Chuẩn yếu hơn"),
-    dict(name="Sgr A (tâm Ngân Hà)", ra=266.4168, dec=-29.0078, flux=1500, f=1420,
-         note="Vùng sáng rộng; alt_max ~ 50°"),
-    dict(name="M31 (Tiên Nữ)", ra=10.6847, dec=41.2692, flux=120, f=1420,
-         note="HI double-horn, cần dải vận tốc ±400 km/s"),
-    dict(name="M33 (Tam Giác)", ra=23.4621, dec=30.6599, flux=60, f=1420,
-         note="Gần thiên đỉnh (89°)"),
-    dict(name="3C 273 (quasar)", ra=187.2779, dec=2.0524, flux=15, f=1420,
-         note="Biến quang; cần tích luỹ lâu"),
-    dict(name="Orion A (M42)", ra=83.8221, dec=-5.3911, flux=400, f=1420,
-         note="Vùng HII mạnh"),
-    dict(name="Mặt Trăng", ra=None, dec=None, flux=1300, f=1420,
-         note="T_B ~ 220 K, đường kính 0.5° → T_A ~ 3 K; chuẩn beam"),
-    dict(name="Mộc Tinh", ra=None, dec=None, flux=8, f=1420,
-         note="Bức xạ nhiệt ~8 Jy; DAM cần 15–30 MHz (không có)"),
-]
-
-
 # ---------------------------------------------------------------- toạ độ/giờ
 def jd_from_datetime(dt: datetime) -> float:
     """JD (UTC). Nếu dt không có tz thì hiểu là giờ ĐỊA PHƯƠNG (UTC+7)."""
@@ -181,8 +152,8 @@ def alt_max(dec_deg, lat_deg=None):
 
 
 # ------------------------------------------------- DANH MỤC MỤC TIÊU TỰ THÊM
-# Người dùng có thể quan sát nguồn KHÔNG có trong PULSARS (pulsar mới, nguồn
-# continuum, hay mục tiêu tự đặt). Danh mục tự thêm lưu ở targets_user.json
+# Người dùng có thể quan sát pulsar KHÔNG có trong PULSARS (pulsar mới hoặc
+# mục tiêu tự đặt). Danh mục tự thêm lưu ở targets_user.json
 # cạnh ứng dụng — thêm/sửa/xoá ngay trong GUI, không cần sửa code.
 import json
 import re as _re
@@ -442,28 +413,6 @@ def print_pulsars(rows):
           "hiệu chuẩn + trỏ + mất mẫu; hãy nhân thêm hệ số 0.7.)")
 
 
-def print_objects():
-    print(f"\n=== Nguồn mạnh / mục tiêu khác (từ TP.HCM, chảo 3.7 m) ===")
-    dish = Dish()
-    print(f"{'tên':>22} {'altmax':>6} {'S(Jy)':>8} {'SEFD':>8} "
-          f"{'T_A(mK)':>8} {'SNR 1s/2.4MHz':>14}  ghi chú")
-    sefd = dish.sefd_jy(150)
-    for o in OBJECTS:
-        if o["ra"] is None:
-            print(f"{o['name']:>22} {'—':>6} {o['flux']:>8.0f} "
-                  f"{sefd/1e3:>8.1f} {o['flux']*dish.gain_kjy()*1e3:>8.0f} "
-                  f"{'—':>14}  {o['note']}")
-            continue
-        sefd_f = dish.sefd_jy(150 if o["f"] > 800 else 300)
-        ta = o["flux"] * dish.gain_kjy() * 1e3            # mK
-        snr1s = (o["flux"] / sefd_f) * math.sqrt(2.4e6 * 1.0)
-        print(f"{o['name']:>22} {alt_max(o['dec']):>6.1f} {o['flux']:>8.0f} "
-              f"{sefd_f/1e3:>8.1f} {ta:>8.1f} {snr1s:>14.0f}  {o['note']}")
-    print("\nT_A = G·S cho chảo 3.7 m (G = 2.14 mK/Jy). SNR 1s chỉ để so sánh "
-          "tương đối giữa các nguồn.")
-
-
-# ------------------------------------------------- đại lượng SUY RA từ pulsar
 def derived(pdot: float, P: float, dm: float) -> dict:
     """P-dot → từ trường, tuổi, công suất mất năng lượng; DM → khoảng cách.
 
@@ -642,7 +591,6 @@ def print_transit(date_str=None, bw_mhz=20.0, tsys=200.0, hpbw=13.4):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--objects", action="store_true")
     ap.add_argument("--derived", action="store_true")
     ap.add_argument("--daytime", action="store_true")
     ap.add_argument("--transit", action="store_true")
@@ -658,8 +606,6 @@ if __name__ == "__main__":
         print_daytime(a.date, a.min_sep)
     elif a.derived:
         print_derived()
-    elif a.objects:
-        print_objects()
     else:
         path = os.path.join(RESULTS, "targets.csv") if a.csv else None
         print_pulsars(table_pulsars(path))

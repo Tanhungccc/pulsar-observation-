@@ -23,13 +23,18 @@
 | Hướng dẫn lắp đặt | `RADIO DATA/3.7-m-Antenna-Assembely and Installation-v6-1.pdf` (40 trang); §6.2.2 *Setting the Elevation Limits* | `[DS]` |
 
 ### 1.1 Feed / đầu thu ngoài trời
+
+> **Trạng thái:** ảnh hiện trường chỉ xác nhận hộp C-band ở tiêu điểm; chưa có bằng
+> chứng feed L-band đã lắp. Chưa nghiệm thu đường thu HI/L-band cho tới khi truy được
+> feed → LNB/downconverter → Receiver và đo đáp tuyến.
+
 | Hạng mục | Giá trị | Nguồn |
 |---|---|---|
-| Hộp tại tiêu điểm | in **“C-Band”** (LNB/block-downconverter), ngõ ra **coax N-type** | `[ẢNH]` |
+| Hộp tại tiêu điểm | in **“C-Band”**; L-band feed là phụ kiện rời trong manual, chưa xác minh đã lắp | `[ẢNH]` / `[DS]` |
 | Phân cực | **2 kênh POL riêng (POL1, POL2)**, mỗi kênh 1 motor quay | `[ẢNH]` ACU |
 | Vị trí POL hiện tại | **−180,00°** (cả POL1 và POL2) | `[ẢNH]` |
-| LO của LNB | **[?]** chưa đọc được nhãn — cần ảnh cận (giả thuyết: 5150 hoặc 5750 MHz) | `[?]` |
-| Suy ra: 1,5 GHz trên màn hình | không khớp LO C-band chuẩn ⇒ nhiều khả năng **receiver đang tune trực tiếp 1,5 GHz** từ một nhánh feed khác, **hoặc** LNB có LO đặc biệt | `[?]` |
+| LO của LNB | **[?]** chưa đọc được nhãn; 5150/5750 MHz chỉ là giả thiết cần kiểm tra | `[?]` |
+| Điều kiện IF=1500 MHz | Nếu 1500 MHz là IF sau downconverter: LO 5150 → RF **3650 MHz**; LO 5750 → RF **4250 MHz**. Nếu receiver tune RF trực tiếp thì phép đổi LO−IF không áp dụng. Cần xác nhận sơ đồ đường tín hiệu. | `[TÍNH]` có điều kiện / `[?]` |
 
 ---
 
@@ -44,7 +49,7 @@
 | Số kênh | **RTRS #1…#8** (Line = 1 kênh "Focus", Continuum = cả 8) | `[DS]` §4 |
 | **IQ rate** | **tối đa 15 MS/s**, mặc định **10 MS/s** ("does not affect the power measurement mode") | `[DS]` |
 | Ngõ ra | **USB3 + LAN** (chưa chụp mặt sau → chưa rõ cổng IF analog) | `[ẢNH]` |
-| Phổ xuất ra | **2048 điểm**, Δf **20 kHz** cho span 50 MHz | `[ĐO]` |
+| Phổ xuất ra | **2048 điểm**, span 50 MHz. CSV làm tròn nên median(diff)≈20 kHz; Δf theo span/(N−1) = **24,426 kHz** | `[ĐO]` / `[TÍNH]` |
 | Tốc độ continuum | **0,1 / 1 / 10 Hz** | `[DS]` §4.3 |
 
 ### 2.2 `Antenna Drive Unit` (khối giữa, đen)
@@ -65,10 +70,9 @@
 | **Sự cố đang có** | `Alarm EL DOWN LIMIT` (EL 28,905 → 29,677° mà vẫn báo) ⇒ giới hạn cứng đặt **≈29–30°** | `[ẢNH]` |
 | AGC | **0.0** (chưa có tín hiệu/ chưa nối) | `[ẢNH]` |
 | Nhiệt ẩm trong hộp | 42,1 °C / 37,3 % → 40,6 °C / 40,6 % | `[ẢNH]` |
-| Đồng hồ | `LOCAL = GMT` (UTC+0) **≠** Time Zone 7 trong RTCS | `[ẢNH]` |
-| **Hệ quả nếu lệch múi giờ** | RTCS đổi RA/Dec → Az/El qua **LST**, mà LST tính từ
-  giờ địa phương. Lệch 7 h = **105° góc giờ** ⇒ chảo trỏ sai hẳn vùng trời (không chỉ
-  lệch vài độ). **GPS đang tắt** nên không có nguồn giờ chuẩn nào tự hiệu chỉnh. | `[TÍNH]` |
+| Đồng hồ ACU | `LOCAL = GMT`, GPS OFF; là trạng thái riêng của ACU | `[ẢNH]` |
+| PC/RTCS | Đối chiếu quỹ đạo Mặt Trời/LST: PC/RTCS theo UTC+7; sai khoảng **3,6 s**. **Không chỉnh PC/Time Zone RTCS** chỉ để khớp ACU. | `[ĐO]` / `[TÍNH]` |
+| Nếu dùng ACU Track trực tiếp | Hỏi POAM quy ước UTC/GPS cho mode này; chưa đủ bằng chứng rằng ACU sẽ lệch 7 h nếu chưa biết quy ước nhập giờ. | `[ẢNH]` / `[?]` |
 | Nhập remote | ACU `Settings` → mật khẩu **222222** → chuyển remote | `[DS]` §3 |
 
 ---
@@ -84,8 +88,10 @@
 | Quét | `Scanning`: **Area 4,00 deg² · step 0,50° · int time 10 s**, chọn nguồn (Mặt Trời…), xuất tham số quét | `[DS]` §7 |
 | Xuất dữ liệu | Phổ **chỉ của Focus Receiver**; công suất **mọi kênh chọn**; header tự ghi tham số receiver + thời điểm đầu/cuối | `[DS]` §4.4 |
 | Điều khiển ACU | **TCP hoặc Modbus**; Modbus dùng `192.168.1.10`, không cần port | `[DS]` §3 |
-| Hiệu chuẩn | **`Calibrator Unit`**: tham số **ECA** (diện tích hiệu dụng) và **ENR nhập bằng °C** | `[DS]` §9, Appendix A |
-| **Công thức Appendix A** | `Tn = (Tamb − 24)·0,1 + ENR + 273,5` (K) · `SFD = (Psun−Psky)/(Pn−Pload) · (Tn−Tload) · 2k·e^τ·L /(α·A_CE)` | `[DS]` tr.49 |
+| Hiệu chuẩn | Có Calibrator/NCU trong RTCS; manual có tham số ECA/ENR, đơn vị ENR nhập nhằng giữa các trang; hình cấu hình là ví dụ, chưa xác nhận số đo NCU tại trạm | `[DS]` / `[?]` |
+| **Công thức Appendix A** | `Tn = (Tamb − 24)·0,1 + ENR + 273,5` (K); đổi dBm sang công suất tuyến tính trước khi lấy tỷ số | `[DS]` tr.49 |
+| **NCU/Calibrator** | Manual Table 1: IP **192.168.1.100**. Figure 15: **ECA=6,40 m²**, **ENR=2,90E+5 °C-equivalent** (diễn giải xấp xỉ 30 dB); đây là cấu hình ví dụ RTCS, **chưa đo/xác nhận NCU thật tại POAM**. Sun Scheduler: Noise 20 s → Load 20 s → Sun 240 s, chu trình 280 s. | `[DS]`; thiết bị thật `[?]` |
+| **PARK / Stow** | RTCS manual §3.5 nêu PARK ở EL≈**85°**; dùng khi đường chuyển động an toàn, theo quy trình người vận hành. | `[DS]` |
 | Chuyển toạ độ | Appendix B: `sin El = sinDec·sinφ + cosDec·cosφ·cosH`, `H = LST − RA` | `[DS]` tr.50 |
 
 ### 3.1 Hiện trạng phiên đang chạy `[ẢNH]`
@@ -105,9 +111,9 @@
 
 | Tệp | Định dạng | Đo được `[ĐO]` |
 |---|---|---|
-| `line.csv` / `Line observation.txt` | `Frequency (Hz)` \| `Power (dBm)` | 2048 điểm · 1475–1525 MHz · Δf 20 kHz · trung vị **−99,3 dBm** · RMS 5,08 dB · đỉnh **1499,99 MHz = −86,1 dBm** (**+2,6σ** so với RMS ⇒ chưa đủ tin cậy là vạch phổ) |
-| `continuum observation.txt` / `.csv` | `Time` \| `dBm` × 8 kênh | 1024 mẫu (98–1121 s) · TB −76,9 dBm · **trôi −1,90 dB/phút** · p2p 76,8 dB |
-| `123.txt` | `AZ-deg` \| `EL-deg` \| `RTRS1` | 147 điểm · AZ 0,6–237,8° · EL 33,6–57,2° · 94 điểm có số · p2p 79,7 dB |
+| `line.csv` / `Line observation.txt` | `Frequency (Hz)` \| `Power (dBm)` | 2048 điểm · span 1475–1525 MHz · Δf từ span **24,426 kHz** (median hiệu 20 kHz do làm tròn) · trung vị **−99,3 dBm** · RMS 5,08 dB · đỉnh **1499,99 MHz = −86,1 dBm** (**+2,6σ**, tại bin giữa: ứng viên rò DC/LO, chưa chứng minh nguồn) |
+| `continuum observation.txt` / `.csv` | `Time` \| `dBm` × 8 kênh | 1024 mẫu (98–1121 s) · TB −76,9 dBm · hồi quy toàn chuỗi −1,928 dB/phút bị các bước công suất chi phối; nền 627–1121 s (495 mẫu) OLS **+0,00177 dB/phút** · các bậc có thể trùng chu trình NCU nhưng cần log trạng thái đồng bộ để xác nhận |
+| `123.txt` | `AZ-deg` \| `EL-deg` \| `RTRS1` | 147 điểm · 53 giá trị 0.00 thiếu · 94 hợp lệ · dòng đầu `.55` không thể khôi phục chính xác từ file (183.55° chỉ là suy đoán theo chuỗi sau) · discontinuity không đồng nghĩa pass 1-D; **không kết luận HPBW** từ raster đa hàng |
 | `…v2.2.pdf`, `3.7-m-…v6-1.pdf` | tài liệu hãng | 51 + 40 trang |
 
 **Quan trọng:** các tệp này **chỉ có phổ đã tích phân và công suất ≤10 Hz** ⇒ **không
@@ -156,24 +162,33 @@ thực tế tối đa **15 MHz**.
 
 ## 7. Checklist buổi ra đài tiếp theo (thứ tự bắt buộc)
 
-1. **Sửa toạ độ trong RTCS** → `106.7009°E / 10.7769°N`, **Time Zone = 7 (East)**.
-   - ⚠ **Kiểm tra đồng bộ thời gian NGAY sau đó** (quan trọng ngang toạ độ):
-     · ACU V1.5c03 đang hiển thị `LOCAL = GMT` ⇒ nếu người vận hành nhập **giờ Việt Nam**
-       trong khi ACU coi đó là UTC, LST lệch **7 h ≈ 105° góc giờ** và chảo bám sai hẳn nguồn.
-     · Đối chiếu ba nguồn: giờ PC (UTC+7) ↔ ACU `LOCAL/GMT` ↔ `LST` hiển thị trong RTCS.
-     · Cách kiểm nhanh: RTCS hiển thị `LST`; so với LST tính từ `psr_swcomp`/astropy tại
-       đúng thời điểm và kinh độ 106,7009°E — **sai khác phải < 10 s** (≈ 0,04°).
-     · GPS đang **tắt**: hoặc bật GPS, hoặc đặt đồng hồ PC/ACU theo NTP và ghi rõ múi giờ
-       vào header mỗi phiên đo (`[ĐO]` trong metadata).
-2. **Xử lý `EL DOWN LIMIT`** theo manual §6.2.2 (mật khẩu ACU `222222` nếu chỉnh phần mềm);
-   xác nhận chảo hạ/bám được tới EL 33–34° cho Vela.
-3. **Ba phép đo hiệu chuẩn:**
+1. **Đo/chốt tọa độ ngay tại chân móng** bằng GPS rồi nhập tọa độ thực vào RTCS,
+   `East`, `Time Zone=7`. Giá trị 106.7009°E/10.7769°N hiện chỉ là tham chiếu nếu
+   trùng phép đo tại site.
+   - Kiểm toán quỹ đạo Mặt Trời/LST xác nhận PC/RTCS đang UTC+7, sai khoảng **3,6 s**.
+     **Không chỉnh giờ PC hoặc Time Zone RTCS** chỉ để khớp màn ACU.
+   - Ghi riêng ACU `LOCAL=GMT`, GPS OFF. Nếu dùng ACU Track trực tiếp, hỏi POAM quy
+     ước UTC/GPS; chưa khẳng định ACU lệch 7 h khi chưa biết cách nhập giờ của nó.
+   - So LST RTCS với UTC, tọa độ đo và ephemeris độc lập (mục tiêu <10 s).
+2. **Kiểm tra `EL DOWN LIMIT` cùng kỹ thuật viên POAM.** Ghi EL min/max/alarm;
+   không tự clear hoặc dời cữ cơ khí, không thử hạ dưới giới hạn khi chưa khảo sát
+   khoảng hở và được người phụ trách chấp thuận.
+3. **Xác minh NCU trước hiệu chuẩn:** đọc IP/serial/tem, ENR thực, load/ambient
+   temperature; giá trị manual ECA/ENR là ví dụ, không mặc định là số đo NCU tại site.
+   Ghi UTC và trạng thái Noise/Load/Sun từng bước. Scheduler manual: 20/20/240 s.
+
+4. **Ba phép đo hiệu chuẩn:**
    - *Scan qua Mặt Trời* → HPBW thực tế + độ lệch tâm búp (so với 1,39° @4 GHz / 3,7° @1,5 GHz).
    - *ON–OFF 5 phút nguồn mạnh / 5 phút trời trống*, bật–tắt Calibrator Unit → T_sys, ENR,
-     tốc độ trôi gain thực (đã thấy −1,9 dB/phút trong log cũ).
+     tốc độ trôi gain thực. Hồi quy toàn chuỗi cũ −1,928 dB/phút bị các bậc công suất
+     chi phối; baseline tĩnh 627–1121 s đo OLS +0,00177 dB/phút. Bậc công suất chưa
+     được quy nguyên nhân cho NCU vì chưa có trạng thái NCU đồng bộ.
    - *Phổ Line tại 1420 MHz* (vạch HI hướng mặt phẳng Ngân Hà) → kiểm tra ổn định tần số.
-4. **Kiểm tra AGC**: phải khác 0 khi chĩa Mặt Trời; nếu vẫn 0 → đứt coax / chưa cấp nguồn LNB.
-5. **Hỏi POAM** 2 câu ở §6 mục (1) và (2) trước khi kết thúc buổi.
+5. **Kiểm tra feed/AGC:** xác minh L-band feed đã lắp chưa, sơ đồ RF/IF, LO và nguồn
+   LNB. AGC=0 là triệu chứng cần điều tra, không tự nó chứng minh coax đứt.
+6. Hỏi POAM về luồng IQ 10–15 MS/s, IF analog, Modbus map, feed L-band/LO, ENR NCU
+   thực và giới hạn EL an toàn. PARK/Stow EL≈85° theo manual chỉ khi người vận hành
+   xác nhận đường chuyển động an toàn.
 
 ---
 
@@ -183,4 +198,4 @@ thực tế tối đa **15 MHz**.
 |---|---|
 | 2026-11-22 | Dựng hồ sơ ban đầu từ datasheet RTP-37 + N6002 (docs/02 §4.4) |
 | 2026-11-23 | Bổ sung ảnh hiện trường: feed C-band, Drive Unit 24 V (AZ/EL/POL), ACU V1.5c03 + `EL DOWN LIMIT`, AGC 0.0, GPS tắt; đọc ảnh RTCS: RTRS ×8, IQ 10 MS/s, B 50 MHz, gain 20 dB, tune 1,5 GHz; phân tích 3 tệp xuất trong `RADIO DATA` |
-| 2026-11-23 | Thêm `code/psr_rtcs.py` (đọc 3 định dạng xuất RTCS, khớp Gauss tính HPBW, hiệu chuẩn Appendix A, `--selftest` 16/16). Chạy trên dữ liệu thật: phổ 2048 điểm (đỉnh 1499,99 MHz chỉ **+2,6σ** ⇒ chưa phải vạch phổ thật); continuum trôi **−1,93 dB/phút**; scan 3 lượt khớp yếu (SNR 2–3) ⇒ **chưa kết luận được HPBW**, cần quét thẳng qua nguồn bước 0,2–0,5° |
+| 2026-11-23 | Thêm `code/psr_rtcs.py`. Phân tích lại: grid spacing phổ span/(N−1)=24,426 kHz (physical FFT resolution còn phụ thuộc metadata); peak bin giữa là center-artifact candidate, nguyên nhân chưa xác minh; continuum slope toàn chuỗi −1,928 và baseline tĩnh +0,00177 dB/phút; `123.txt` thiếu timestamp/pass-state và không dùng để suy HPBW raster |

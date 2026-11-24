@@ -15,7 +15,6 @@ pulsar observation/
 │   ├── 01_vat_ly_va_thuat_toan.md  vật lý tín hiệu + 13 thuật toán (A1–A13)
 │   ├── 02_chuoi_thu_va_do_nhay.md  chuỗi thu, T_sys, SEFD, ngân sách S/N, RFI
 │   ├── 03_do_duoc_gi_tu_pulsar.md  đo được gì: P, Ṗ, B, tuổi, DM, vị trí, ...
-│   ├── 04_quan_sat_gi_khac.md      còn quan sát được gì khác ngoài pulsar
 │   ├── 05_ke_hoach_trien_khai.md   kế hoạch 5 giai đoạn + cổng G0–G4 + chi phí
 │   ├── 06_phan_cung_toi_gian_va_ghi_tu_dong.md  phần cứng tối giản, ghi tự động, nghiệm thu
 │   ├── 07_kien_truc_he_thong_xu_ly.md  ★ ĐẶC TẢ CHỐT kiến trúc 6 tầng + mốc M1–M5
@@ -26,7 +25,7 @@ pulsar observation/
 │   ├── psr_fil.py                  đọc/ghi SIGPROC .fil (1/2/4/8/16/32-bit, nifs>1)
 │   ├── psr_fits.py                 đọc PSRFITS (+ ghi PSRFITS tối thiểu để tự test)
 │   ├── psr_iq.py                   đọc IQ THÔ (SigMF/SDR/WAV) + channelize + sửa méo IQ
-│   ├── psr_detect.py               pipeline phát hiện trên DỮ LIỆU THẬT (.fil)
+│   ├── psr_detect.py               pipeline phân tích filterbank/IQ; provenance theo metadata
 │   ├── psr_plots.py                biểu đồ chuẩn (nhãn + đơn vị + chú giải đúng)
 │   ├── psr_hw.py                   mô hình phần cứng: dự đoán chuỗi + tự fallback
 │   ├── psr_rtcs.py                 ★ đọc dữ liệu xuất RTCS (phổ/continuum/scan),
@@ -37,13 +36,13 @@ pulsar observation/
 │   ├── psr_sensitivity.py          SEFD / gain / SNR (ngân sách S/N)
 │   ├── psr_targets.py              danh mục, quan sát ban ngày/transit, đại lượng suy ra
 │   ├── psr_pipeline.py             pipeline end-to-end trên dữ liệu tổng hợp
-│   ├── acceptance_test.py          ★ NGHIỆM THU: 61 mục (S1–S5), 61/61 ĐẠT
+│   ├── acceptance_test.py          ★ NGHIỆM THU end-to-end (S1–S5)
 │   ├── stress_test.py              CORPUS dữ liệu XẤU: 10 file, 10/10 PASS
-│   ├── gui_verify.py               kiểm chứng GUI: tự bấm mọi nút, 37 kiểm tra
+│   ├── gui_verify.py               kiểm chứng GUI: tự bấm mọi nút và preview
 │   ├── gui_app.py                  GIAO DIỆN 5 tab (Tkinter) — nguồn của EXE
 │   └── selftest.py                 22 test kiểm chứng vật lý + thuật toán
 ├── data/
-│   ├── B0329+54.fil                DỮ LIỆU THẬT: GREENBURST/GBT, 3 xung B0329+54
+│   ├── B0329+54.fil                Dữ liệu kiểm chứng: tệp có nguồn Greenburst/GBT ghi trong DATA_SOURCES.md; header local là TEMP
 │   ├── stress/                     CORPUS "XẤU": Crab, RFI, 2-bit, PSRFITS hỏng…
 │   ├── iq/                         IQ THÔ THẬT: giant pulse Cua, Dwingeloo 25 m
 │   └── <YYYYMMDD>/                 file ghi tự động (<target>_<UTC>.fil + .json)
@@ -64,21 +63,15 @@ Double-click để mở. Repo **không chứa dữ liệu quan sát** — tải 
 
 **Phiên bản mới nhất: 1.6.0.**
 
-### Hình vẽ: mỗi hình xuất 3 định dạng
+### Hình vẽ
 
-Mỗi lần chạy, thư mục `results/<YYYYMMDD_HHMMSS>/` có **cùng một hình ở 3 đuôi**:
+Mỗi hình được lưu thành **PNG (preview) + SVG** trong
+`results/<YYYYMMDD_HHMMSS>/`. Không xuất PDF/HTML. Trong Tab 2 chọn panel A/B/C/D
+để xem; **không có zoom tích hợp**. Dùng **“Mở toàn hình bằng trình xem ảnh”** để
+mở PNG gốc ngoài ứng dụng; SVG vẫn được lưu như định dạng vector cho quy trình
+báo cáo bên ngoài.
 
-| Tệp | Dùng để | Đặc điểm |
-|---|---|---|
-| `figN_*.png` | xem nhanh trong app, chèn vào báo cáo ngắn | ảnh raster 200 dpi — **phóng to sẽ vỡ nét** (dùng SVG khi cần soi) |
-| `figN_*.svg` | **zoom vô hạn** (mở bằng Edge/Chrome/Inkscape) | vector, chữ chọn/copy được, nhẹ hơn PNG |
-
-Quy ước ký hiệu (mỗi ký hiệu đều có trích dẫn bài báo) và cách tương tác
-zoom/pan/thanh trượt: xem [`docs/10_quy_uoc_hinh.md`](docs/10_quy_uoc_hinh.md).
-
-Trong Tab 2 có nút **“Mở SVG (zoom ∞)”** để mở bản vector của hình đang chọn, và thanh
-công cụ matplotlib (**zoom khung / pan / lưu**) ngay dưới khung hình. Lưu ý: zoom thanh
-công cụ là phóng ảnh đã vẽ; muốn xem chi tiết tới từng điểm dữ liệu thì dùng **SVG/PDF**.
+Quy ước ký hiệu có tài liệu tham khảo: [`docs/10_quy_uoc_hinh.md`](docs/10_quy_uoc_hinh.md).
 
 ## 0b. Trạng thái & lộ trình phần mềm
 
@@ -125,7 +118,6 @@ python psr_targets.py         # bảng SNR dự đoán cho 10 pulsar × 5 cấu 
 Phụ:
 ```bash
 python psr_targets.py --derived   # B, tuổi, Ė, khoảng cách DM của từng pulsar
-python psr_targets.py --objects   # Cas A, Cyg A, M31, Mặt Trăng, ... (docs/04)
 python psr_targets.py --transit   # giờ transit + thời gian HIỆU DỤNG khi để chảo cố định (docs/05 §8c)
 python psr_targets.py --daytime   # pulsar nào quan sát được BAN NGÀY hôm nay (docs/05 §8b)
                                  # thêm --date 2027-02-15 --min-sep 45 để lên lịch
@@ -183,29 +175,29 @@ Chi tiết: `docs/02` §4.0 (đính chính), §4.4 (hệ RTP37), §4.5 (dự ph�
 
 | Hạng mục | Trạng thái |
 |---|---|
-| Công thức vật lý (SEFD, beam, trễ DM, trải tán sắc) | ✅ `selftest.py` 22/22 |
+| Công thức vật lý (SEFD, beam, trễ DM, trải tán sắc) | ✅ `selftest.py` 37/37 |
 | Khử tán sắc (A2), fold + SNR (cửa sổ vòng), tinh chỉnh P | ✅ |
-| DM dải con (A11b/A11c, trọng số SNR + sigma-clip) | ✅ sai 0.2–1.2 % |
+| DM dải con (A11b/A11c, Theil–Sen + leave-one-subband jackknife) | ✅ 8 subband giữ lại; residual được báo, nguyên nhân không tự gán |
 | zero-DM phân biệt RFI phẳng vs xung tán sắc | ✅ test riêng |
 | Đọc/ghi `.fil` + kiểm chứng round-trip | ✅ |
-| **Phát hiện trên DỮ LIỆU THẬT** (GREENBURST/GBT B0329+54) | ✅ 3 xung cùng pha, DM 25.98 vs 26.764, 5/5 kiểm chứng PASS |
-| **Giao diện: mọi nút + đường dẫn** | ✅ `gui_verify.py` 37/37 PASS (đã bắt và sửa 6 lỗi thật) |
+| **Tệp kiểm chứng B0329+54** (DATA_SOURCES.md; local header = TEMP) | ✅ 3 pulse candidates DM-consistent; DM subband 26.32 ± 0.79, residual thấp tần ≈−7.1 ms cần đánh giá; không phải phép đo RTP-3.7 |
+| **Giao diện: mọi nút + đường dẫn** | ✅ `gui_verify.py` 70/70 PASS |
 | **EXE đóng gói** | ✅ `PulsarObs.exe --selfcheck` 7 phép kiểm bên trong, `frozen=True` |
-| **NGHIỆM THU đa điều kiện** | ✅ `acceptance_test.py` **61/61 ĐẠT** (S1 đầu vào · S2 fallback · S3 đầu ra · S4 GUI · S5 đối chiếu) |
+| **NGHIỆM THU đa điều kiện** | ✅ `acceptance_test.py` **68/68 ĐẠT** (S1–S5) |
 | Trình ghi tự động (mock + đọc lại + gap log) | ✅ `--selftest` PASS |
 | Trình ghi tự động trên **RTL-SDR thật** | ⚠ code sẵn, cần cắm thiết bị |
 | Khử tán sắc kết hợp (A3) | ⚠ có hàm, cần stream liên tục |
 | Quan sát trên kính RTP-3.7 | ❌ chờ giai đoạn 0–3 (`docs/05`) |
 
-### Kết quả trên dữ liệu THẬT (`results/B0329+54_*`)
+### Kết quả trên tệp kiểm chứng B0329+54 (`results/<timestamp>/`)
 
 | Đại lượng | Đo được | Tham chiếu ATNF |
 |---|---|---|
-| 3 xung cùng pha (mod P) | 293.7 ± 0.6 ms | "three pulses" (mô tả bộ dữ liệu) |
-| DM (trễ dải con) | 25.98 ± 0.50 | 26.7641 |
-| DM (quét fold) | 27.25 (đỉnh 608σ) | 26.7641 |
-| SNR xung mạnh nhất / bề rộng | 608 / 8.2 ms | W50 ≈ 6–12 ms |
-| Đối chứng nền (xáo trộn kênh) | 9.2σ < 12 | ✅ không phát hiện giả |
+| Pulse candidates | 3 ứng viên DM-consistent trong file kiểm thử | file mô tả “three pulses”; local header source=TEMP |
+| DM robust (Theil–Sen 8 subband) | 26.32 ± 0.79 pc cm⁻³ (jackknife; pulse SNR cao nhất) | 26.7641 (reference only); low-edge residual ≈−7.1 ms, cause unknown |
+| DM boxcar scan | 27.25 (peak 608σ) | 26.7641 (reference only) |
+| Candidate có matched-filter SNR cao nhất / boxcar width | 608 / 8.2 ms; peak chuẩn hoá≈0.703, pulse 291.6 ms peak≈0.768 | matched-filter SNR ≠ peak amplitude |
+| Provenance | local header `TEMP`; nguồn ngoài được ghi trong DATA_SOURCES.md | không phải quan sát RTP-3.7 |
 
 ---
 

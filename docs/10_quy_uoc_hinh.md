@@ -1,74 +1,44 @@
-# 10 — Quy ước vẽ hình & định dạng tệp (có trích dẫn)
+# 10 — Quy ước ký hiệu, provenance và xem/zoom biểu đồ
 
-Tài liệu này chốt **mọi ký hiệu/định dạng hình** của app. Nguyên tắc: **không tự
-đặt ra quy ước** — mỗi ký hiệu phải có tiền lệ trong bài báo hoặc tài liệu kỹ
-thuật, và ghi rõ nguồn. Mã nguồn tương ứng: `code/psr_plots.py` (đầu tệp).
+## Quy ước đã đối chiếu với caption bài báo
 
-## 1. Bảng quy ước ký hiệu
-
-| Ký hiệu | Nghĩa trong app | Nguồn (trích nguyên văn caption) |
+| Dấu/nét | Nghĩa trong ứng dụng | Tham khảo |
 |---|---|---|
-| **●** (chấm đặc) | điểm **ĐO được** | arXiv:1501.03312 — *"based on pulse broadening (filled red circles) and component separation (open squares)"* |
-| **○** (chấm rỗng) | điểm **lệch khớp / đại lượng suy ra** | cùng nguồn: *"open squares"* dùng cho đại lượng suy ra; ở đây ○ đánh dấu điểm lệch khớp > 3σ |
-| **—** (nét liền) | **đường mô hình khớp** dữ liệu của chính mình | astro-ph/0701193 — *"An example of a GP (solid line) in comparison with an AP (dotted line)"*: nét liền = sản phẩm chính |
-| **--** (nét đứt) | **giá trị tham chiếu ngoài** (DM catalogue, đường bằng nhau) | arXiv:2003.01071 — *"The line of equal flux values is shown by a green dashed line"* |
-| **dải tô** | **bất định / sai số hệ thống** | cùng bài — *"The systematic error … is represented by the green surface around the diagonal dashed line"* |
-| **thanh sai số** | bất định **từng điểm đo** | cùng bài — *"with an error bar of 50 %"* |
-| **★** | **giá trị sáng nhất / cực trị** | arXiv:2606.10807 — *"for the average flux density (plus symbol) and for the brightest observed pulse (stars)"* |
-| **▲ / ▼** | **chiều biến thiên / loại trạng thái** — *không* dùng để trỏ đỉnh | arXiv:1511.01767 — *"upward/downward triangles indicate DM values increasing/decreasing with time. Unfilled triangles mark pulsars without significant DM variation"* |
+| ● đặc | điểm đo | arXiv:1501.03312: “filled red circles” cho phép đo; caption đối chiếu “open squares” cho đại lượng khác |
+| ○ rỗng | điểm residual được đánh dấu; **không tự hàm ý RFI** | Cùng caption dùng open squares cho component separation; residual chỉ là residual của model |
+| Nét liền | đường fit | astro-ph/0701193 phân biệt GP “solid line” với AP “dotted line” |
+| Nét đứt | tham chiếu | arXiv:2003.01071: “line of equal flux values … dashed line” |
+| Dải tô | vùng bất định/sai số hệ thống | arXiv:2003.01071: systematic error được biểu diễn bằng vùng tô quanh đường tham chiếu |
+| Error bar | sai số đo | Cùng bài mô tả error bar |
+| ★ | candidate có matched-filter SNR cao nhất; không đồng nghĩa peak-amplitude cao nhất | arXiv:2606.10807 dùng star cho brightest observed pulse; ứng dụng legend ghi tiêu chí matched-filter SNR |
+| ▲/▼ | hướng biến thiên | arXiv:1511.01767 dùng triangles cho DM tăng/giảm; không dùng tam giác để chỉ vị trí đỉnh |
 
-### Hệ quả đã áp dụng trong code
+### Diễn giải đúng các panel B0329+54
 
-1. **Bỏ hẳn ▼ "trỏ đỉnh xung"** ở panel (a) và (c): không có tiền lệ; tam giác
-   trong bài báo mang nghĩa *chiều biến thiên*, dùng lại sẽ sai nghĩa.
-2. **Chỉ đánh dấu MỘT xung — xung sáng nhất — bằng ★** (tiền lệ "brightest
-   observed pulse (stars)"). Các xung còn lại được **liệt kê bằng chữ** trong
-   chú giải (`+2 xung khác: 292, 1006 ms`), đúng cách bài báo xử lý (bảng hoặc
-   chú giải), không rải ký hiệu khắp hình.
-3. **Bỏ nét đứt đỏ dọc mỗi xung** (panel a trước đây): nét đứt đã dành riêng cho
-   giá trị tham chiếu, dùng hai nghĩa trên cùng một hình là sai quy ước.
-4. **Đường SNR theo DM** vẽ **nét liền không marker**: ~1 000 bước DM san sát,
-   marker sẽ đè khít thành dải đậm và che vùng đỉnh.
-5. **Panel dải con**: ● đo được + nét khớp + **dải ±1σ** + **thanh sai số từng
-   điểm** + **○ cho điểm lệch khớp > 3σ** (ghi rõ số σ trong chú giải). Nhờ vậy
-   điểm nhiễu tần số thấp lệch 17σ được nêu ra thay vì bị dải mờ che mất.
+- Panel (a): pulse 1722.9 ms có matched-filter SNR 608.35, peak chuẩn hoá ≈0.703;
+  pulse 291.6 ms có peak ≈0.768 nhưng SNR 593.42. Vì vậy ★ chỉ highlight candidate
+  có SNR lọc khớp cao nhất; legend proxy ghi tiêu chí. Preview ngang/thấp đặt legend
+  upper-center, kiểm tra bbox marker/legend không overlap.
+- Panel (d): 8 subband, DM Theil–Sen ≈26.32 pc cm⁻³; leave-one-subband-out
+  jackknife ≈0.79 pc cm⁻³ (kèm sàn hệ thống 3%), giữ đủ 8 điểm. Điểm thấp tần
+  1019.9 MHz có residual khoảng −7.1 ms so với đường fit; nguyên nhân chưa xác định.
+  Không báo “17σ”: với chỉ 8 subband, không diễn giải residual thành pointwise
+  Gaussian significance. Đây là fit kiểm tra, không phải hiệu chuẩn độc lập.
+- “DM boxcar” ở panel (b) và “DM subband” ở (d) là phép đo khác nhau. Giữ cả hai,
+  kèm phương pháp và sai số; không ép chúng thành một số duy nhất.
+- Trục thời gian: **cường độ tương đối (đã trừ nền, chuẩn hoá)**. Đây không phải
+  residual của một mô hình vật lý fit.
+- Provenance: không đóng badge/tiêu đề “DỮ LIỆU THẬT” chỉ vì file đọc được. Header
+  `TEMP/TEST` được đánh dấu chưa xác minh; source provenance cần metadata đáng tin.
 
-## 2. Định dạng tệp hình
+## Định dạng và xem hình
 
-| Tệp | Dùng khi nào | Vì sao |
-|---|---|---|
-| `figN_*.png` (200 dpi) | xem nhanh trong app, chèn báo cáo ngắn | nhẹ, hiển thị tức thì; **là raster → phóng to sẽ vỡ nét** |
-| `figN_*.svg` | **soi chi tiết, zoom vô hạn** (Edge/Chrome/Inkscape) | vector thật, chữ là `<text>` (chọn/copy/dịch được), không cần cài gì thêm |
-| `figN_*.pdf` | **KHÔNG dùng** | người dùng không chấp nhận định dạng PDF |
-| `.html` (Plotly/Bokeh) | **KHÔNG dùng** | phải có trình duyệt/webview → phá ràng buộc "Tkinter thuần" |
+Mỗi hình lưu **PNG** để preview và **SVG** cho quy trình báo cáo bên ngoài. Không xuất
+PDF hoặc HTML. Trong Tab 2 preview một panel A/B/C/D, không có zoom/pan tích hợp.
+Nút **Mở toàn hình bằng trình xem ảnh** mở PNG gốc bằng ứng dụng ngoài.
 
-Vì sao **SVG** mà không EPS/PS (hai định dạng vector khác của matplotlib):
-EPS/PS dùng bảng mã cũ, **mất dấu tiếng Việt** ("tần số" → "t?n s?") và không
-mở trực tiếp bằng trình duyệt. Danh sách định dạng hỗ trợ của matplotlib:
-`png, pdf, ps, eps, svg, svgz, raw, rgba, jpg, tif, webp, pgf` — trong đó chỉ
-`svg` thoả đồng thời: vector + Unicode + mở bằng công cụ có sẵn.
+## Kiểm chứng tự động
 
-## 3. Tương tác trong app (không cần HTML)
-
-`code/psr_zoom.py` gắn vào khung hình Tab 2 — cùng cảm giác với công cụ web
-nhưng chạy trong Tkinter:
-
-| Thao tác | Kết quả |
-|---|---|
-| Lăn chuột | zoom quanh vị trí con trỏ (trục X) |
-| Shift + lăn chuột | zoom trục Y |
-| Kéo chuột trái | di chuyển (pan) cả hai trục |
-| Nháy đúp | trả về khung nhìn ban đầu |
-| Thanh trượt **Vị trí / Độ rộng** | cuộn và giãn cửa sổ dữ liệu (như range-slider) |
-| Phím ← → ↑ ↓ / + − / R | cuộn / zoom / reset |
-
-Lưu ý trung thực: zoom trong app là phóng **ảnh đã vẽ** (raster trên canvas).
-Muốn xem tới từng điểm dữ liệu thì mở **SVG** — vector nên không giới hạn độ nét.
-
-## 4. Kiểm chứng tự động
-
-- `module_audit.py` → nhóm `psr_plots (vector)` (đủ PNG+SVG, SVG hợp lệ, chữ là
-  text, **không** sinh PDF/HTML) và nhóm `psr_zoom` (zoom 2× đúng, pan không đổi
-  độ rộng, reset đúng khung gốc, `set_window` đúng vị trí/độ rộng).
-- `figure_check` trong `psr_detect` chặn chú giải/chú thích đè dữ liệu hoặc tràn
-  khung — đã bắt được chính chú thích mới thêm trong quá trình làm mục này.
+`module_audit.py` kiểm tra SVG/PNG, trục/legend và marker ★ không đè legend ở preview
+rộng/thấp; residual không bị gán nguyên nhân; provenance không tự mặc định là thật.
+`figure_check` kiểm tra legend/nhãn/trục trên hình kết quả.
