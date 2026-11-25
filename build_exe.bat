@@ -41,7 +41,8 @@ copy /Y dist\PulsarObs.exe PulsarObs.exe >nul
 if errorlevel 1 ( echo FAIL: khong copy duoc exe & exit /b 1 )
 
 echo [4/4] Kiem chung ban dong goi...
-PulsarObs.exe --selfcheck
+REM goi qua ".\PulsarObs.exe": cmd khong resolve duoc ten tron khi path co khoang cach
+if exist PulsarObs.exe (".\PulsarObs.exe" --selfcheck) else (echo FAIL: thieu PulsarObs.exe & exit /b 1)
 if errorlevel 1 ( echo FAIL: selfcheck & exit /b 1 )
 
 echo.

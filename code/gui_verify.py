@@ -144,6 +144,15 @@ def main(fast=False):
     root = tk.Tk()
     app = gui_app.App(root)
     root.update()
+    # tắt vòng after(45 s) của bảng kế hoạch: bộ test dài hơn 45 s sẽ bị
+    # callback bắn đúng lúc đổi theme/huỷ widget → TclError (đã gặp)
+    try:
+        if getattr(app, "_plan_after_id", None) is not None:
+            app.root.after_cancel(app._plan_after_id)
+        app._plan_after_id = None
+        app._schedule_plan_refresh = lambda: None
+    except Exception:                         # noqa: BLE001
+        pass
     opened = []
     gui_app.os.startfile = lambda p: opened.append(p)      # chặn mở app ngoài
     chosen = {}

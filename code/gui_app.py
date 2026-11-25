@@ -795,9 +795,18 @@ class App:
                 self.root.after_cancel(jid)
             except Exception:                 # noqa: BLE001
                 pass
+        def _tick():
+            # phòng widget đã bị huỷ (đổi theme/tắt app giữa chừng):
+            # TclError trong callback after() không được để thoát ra ngoài
+            try:
+                if not self.root.winfo_exists():
+                    self._plan_after_id = None
+                    return
+                self.refresh_plan(silent=True)
+            except Exception:                 # noqa: BLE001 — TclError v.v.
+                self._plan_after_id = None
         try:
-            self._plan_after_id = self.root.after(
-                45_000, lambda: self.refresh_plan(silent=True))
+            self._plan_after_id = self.root.after(45_000, _tick)
         except Exception:                     # noqa: BLE001
             self._plan_after_id = None
 
