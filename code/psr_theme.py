@@ -345,7 +345,8 @@ def apply_styles(root: tk.Misc) -> dict:
            background=[("active", p["info_bg"]), ("pressed", p["info_bg"]),
                        ("disabled", p["bg"])],
            foreground=[("disabled", p["muted"])])
-    st.configure("NavSel.TButton", background=p["sel_bg"], foreground=p["primary"],
+    sel_fg = p["info"] if p["mode"] == "dark" else p["primary"]
+    st.configure("NavSel.TButton", background=p["sel_bg"], foreground=sel_fg,
                  bordercolor=p["primary"], lightcolor=p["sel_bg"],
                  darkcolor=p["sel_bg"], font=(f["ui"], f["btn"][1], "bold"),
                  padding=(sp(10), sp(5)), borderwidth=1, anchor="w")
@@ -359,6 +360,24 @@ def apply_styles(root: tk.Misc) -> dict:
     st.map("Ghost.TButton", background=[("active", p["line2"])],
            lightcolor=[("active", p["line2"])], darkcolor=[("active", p["line2"])],
            foreground=[("active", p["ink"])])
+    # nút chuyển chế độ xem A/B/C/D: căn giữa, chữ rõ trên nền surface
+    st.configure("PanelTab.TButton", background=p["surface2"], foreground=p["ink"],
+                 bordercolor=p["line"], lightcolor=p["surface2"],
+                 darkcolor=p["surface2"], font=f["btn"],
+                 padding=(sp(12), sp(5)), borderwidth=1, anchor="center")
+    st.map("PanelTab.TButton", background=[("active", p["line2"])],
+           lightcolor=[("active", p["line2"])], darkcolor=[("active", p["line2"])],
+           bordercolor=[("active", p["primary"])],
+           foreground=[("active", p["ink"])])
+    panel_sel_fg = p["sel_ink"] if p["mode"] == "dark" else p["primary"]
+    st.configure("PanelTabSel.TButton", background=p["sel_bg"],
+                 foreground=panel_sel_fg, bordercolor=p["primary"],
+                 lightcolor=p["sel_bg"], darkcolor=p["sel_bg"],
+                 font=(f["ui"], f["btn"][1], "bold"),
+                 padding=(sp(12), sp(5)), borderwidth=1, anchor="center")
+    st.map("PanelTabSel.TButton", background=[("active", p["sel_bg"])],
+           lightcolor=[("active", p["sel_bg"])],
+           darkcolor=[("active", p["sel_bg"])])
 
     # tab: phẳng, gạch chân bằng màu chữ đậm + nền sáng hơn
     st.configure("TNotebook", background=p["bg"], bordercolor=p["line"],

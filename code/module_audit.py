@@ -645,28 +645,20 @@ def audit_vector_export():
 
 
 def audit_preview_no_zoom():
-    """GUI intentionally exposes no embedded zoom control after user request."""
-    section("GUI preview: static panel, no zoom action")
+    """GUI exposes single-panel preview with Desmos/GeoGebra X/Y zoom & stretch."""
+    section("GUI preview: single panel + Desmos/GeoGebra X/Y zoom")
     from tkinter import Tk
     import gui_app
     root = Tk()
     try:
         app = gui_app.App(root)
         root.update()
-        buttons = []
-        def walk(w):
-            for c in w.winfo_children():
-                if c.winfo_class() == "TButton":
-                    buttons.append(str(c.cget("text")))
-                walk(c)
-        walk(app.tab_det)
-        zoom_buttons = [x for x in buttons if any(k in x.lower()
-                         for k in ("zoom", "phóng", "xem lớn", "svg"))]
-        chk("preview defaults to a single panel", app.fig_panel.get() in {"a","b","c","d"})
-        chk("no zoom/viewer controls in Tab 2", not zoom_buttons, str(zoom_buttons))
-        chk("no custom zoom handlers attached", getattr(app,"det_zoom",None) is None
-            and getattr(app,"det_sliders",None) is None
-            and getattr(app,"det_toolbar",None) is None)
+        chk("preview defaults to a single panel", app.fig_panel.get() in {"a", "b", "c", "d"})
+        chk("interactive X/Y zoom controller attached",
+            getattr(app, "det_zoom", None) is not None
+            and getattr(app, "det_auto_y", None) is not None)
+        chk("zoom axis modes X+Y / X / Y present",
+            set(getattr(app, "_axis_mode_btns", {})) == {"xy", "x", "y"})
         chk("full saved PNG can be opened externally", callable(app.open_figure_external))
     finally:
         try: root.destroy()

@@ -61,7 +61,7 @@ PULSARS = [
     dict(name="B0950+08", pdot=2.3e-16, ra=148.2888, dec=7.9266, P=0.253065, dm=2.97,
          s408=400, s1400=100, w1400=8.6,
          note="Sáng, DM thấp, gần thiên đỉnh 87° — MỤC TIÊU #1 cho L-band"),
-    dict(name="B1929+10", pdot=1.16e-15, ra=292.0, dec=10.9833, P=0.226518, dm=3.18,
+    dict(name="B1929+10", pdot=1.16e-15, ra=293.0583, dec=10.9922, P=0.226518, dm=3.18,
          s408=303, s1400=29, w1400=6.0,
          note="Gần thiên đỉnh 90°, DM thấp, nhưng yếu ở 1.4 GHz"),
     dict(name="B1133+16", pdot=3.73e-15, ra=174.0, dec=15.8167, P=1.187935, dm=4.84,

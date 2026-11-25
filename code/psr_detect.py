@@ -935,29 +935,28 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
             print(f"      [{it['kind']}] {it['panel']}: {it['detail']}")
     else:
         print("   ✔ bố cục hình: chú giải/chú thích không đè dữ liệu, không tràn khung")
-    # Cache các mảng ĐÃ TÍNH để GUI vẽ lại bằng Figure TkAgg trong cửa sổ lớn;
-    # dữ liệu/thuật toán không bị thay đổi.
-    if keep_figures:
-        try:
-            import psr_render
-            m["_render"] = psr_render.collect_render_data(
-                s_dd=s_dd, tsamp=tsamp, pulses=pulses, pulses_ok=pulses_ok,
-                dm_grid=dm_grid, snr_dm=snr_dm, dm_best=dm_best, dm_ref=dm_ref,
-                pulse_thresh=pulse_thresh, use_fold_scan=use_fold_scan,
-                fold_info=fold_info, subband=_sb, header=h, path=path, met=met,
-                provenance=_prov)
-        except Exception as _re:            # noqa: BLE001 — PNG vẫn là chính
-            print(f"   (không cache dữ liệu vẽ: {_re!r})")
-    # bbox từng panel đo THẬT trên renderer. Dùng để: (1) xuất TỪNG PANEL
-    # thành file riêng fig2_panel_<key>.png — khung xem của GUI nạp thẳng file
-    # thay vì cắt runtime từ ảnh ghép 4-in-1 (nguồn của mọi lỗi "cắt oan
-    # trục/nhãn"); (2) fallback crop cho chạy cũ thiếu file panel.
+    # Tạo dữ liệu render dùng chung cho 4 graph đơn lẻ (PNG + SVG + cache vector).
+    _rd = None
+    try:
+        import psr_render
+        _rd = psr_render.collect_render_data(
+            s_dd=s_dd, tsamp=tsamp, pulses=pulses, pulses_ok=pulses_ok,
+            dm_grid=dm_grid, snr_dm=snr_dm, dm_best=dm_best, dm_ref=dm_ref,
+            pulse_thresh=pulse_thresh, use_fold_scan=use_fold_scan,
+            fold_info=fold_info, subband=_sb, header=h, path=path, met=met,
+            provenance=_prov)
+        psr_render.save_render_cache(_rd, out_dir)
+        if keep_figures:
+            m["_render"] = _rd
+    except Exception as _re:                # noqa: BLE001 — PNG vẫn là chính
+        print(f"   (không tạo cache render: {_re!r})")
+
+    # bbox từng panel đo THẬT trên renderer (giữ tương thích fallback crop).
     _boxes = {}
     try:
         fig.canvas.draw()
         _rend = fig.canvas.get_renderer()
         _fw, _fh = fig.get_size_inches() * fig.dpi
-        _boxes = {}
         for _key, _axp in zip(("a", "b", "c", "d"), ax.flat):
             _bb = _axp.get_tightbbox(_rend)
             if _bb is None:
@@ -975,24 +974,23 @@ def detect(path: str, dm_ref: float | None = None, p_ref: float | None = None,
     f2 = os.path.join(out_dir, "fig2_detection.png")
     _savefig(fig, f2, dpi=300)          # toàn đường/marker → 300 dpi vẫn nhẹ
     plt.close(fig)
-    # ---- xuất 4 file panel riêng (cắt bằng bbox đã đo, đệm 0,4 % mỗi cạnh)
-    if _boxes:
-        try:
-            import matplotlib.image as _mimg
-            _big = _mimg.imread(f2)
-            _H, _W = _big.shape[:2]
-            _pad = 0.004
-            for _key, (_bx0, _by0, _bx1, _by1) in _boxes.items():
-                _mx0, _my0 = max(_bx0 - _pad, 0.0), max(_by0 - _pad, 0.0)
-                _mx1, _my1 = min(_bx1 + _pad, 1.0), min(_by1 + _pad, 1.0)
-                _mimg.imsave(
-                    os.path.join(out_dir, f"fig2_panel_{_key}.png"),
-                    _big[int(_my0 * _H):int(_my1 * _H),
-                         int(_mx0 * _W):int(_mx1 * _W)])
-        except Exception as _pe2:        # noqa: BLE001 — còn fallback crop
-            print(f"   (không xuất fig2_panel_*.png: {_pe2!r})")
 
-    m["files"] = [os.path.basename(f1), os.path.basename(f2)]
+    # ---- xuất 4 graph đơn lẻ độc lập (PNG 300 dpi + SVG vector cho từng panel)
+    _panel_files = []
+    if _rd is not None:
+        try:
+            import psr_render
+            for _key, _ in psr_render.PANELS:
+                _fp = plt.figure(figsize=(9.0, 4.0))
+                psr_render.draw_panel(_rd, _fp, which=_key)
+                _p_out = os.path.join(out_dir, f"fig2_panel_{_key}.png")
+                _savefig(_fp, _p_out, dpi=300)
+                plt.close(_fp)
+                _panel_files.append(os.path.basename(_p_out))
+        except Exception as _pe2:        # noqa: BLE001
+            print(f"   (không xuất fig2_panel_*.png độc lập: {_pe2!r})")
+
+    m["files"] = [os.path.basename(f1), os.path.basename(f2)] + _panel_files
     # ---- M3: hình dò chu kỳ mù (nếu có ứng viên)
     try:
         _ps = m.get("period_search") or {}

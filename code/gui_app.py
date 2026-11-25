@@ -694,16 +694,17 @@ class App:
 
         wrap = ttk.Frame(box)
         wrap.pack(fill="both", expand=True, padx=theme.sp(6), pady=theme.sp(6))
-        cols = ("tgt", "tr", "alt", "snr", "need", "dmmax")
+        cols = ("tgt", "tr", "alt_now", "alt_max", "snr", "need", "dmmax")
         self.plan_tree = ttk.Treeview(wrap, columns=cols, show="headings",
                                       height=7, selectmode="browse")
-        heads = ("Mục tiêu", "Transit", "Alt", "SNR/giờ", "→ SNR 8", "DM max")
+        self.plan_tree.tag_configure("below_horizon", foreground=self.pal["muted"])
+        heads = ("Mục tiêu", "Transit", "Alt (now)", "Max Alt", "SNR/giờ", "→ SNR 8", "DM max")
         # width = bề rộng KHỞI ĐIỂM, minwidth = sàn; stretch=True để Treeview tự
         # chia phần dư. Trước đây cộng dồn bề rộng cố định nên ở 130 % bề rộng
         # vượt khung → cột cuối (dm_max) bị cắt mất.
-        widths = tuple(theme.sp(v) for v in (108, 58, 60, 66, 70, 76))
-        mins = tuple(theme.sp(v) for v in (86, 52, 54, 58, 62, 66))
-        anchors = ("w", "center", "center", "e", "e", "e")
+        widths = tuple(theme.sp(v) for v in (98, 54, 66, 62, 62, 68, 66))
+        mins = tuple(theme.sp(v) for v in (80, 48, 56, 54, 54, 60, 58))
+        anchors = ("w", "center", "center", "center", "e", "e", "e")
         for c, ttl, w, mn, anc in zip(cols, heads, widths, mins, anchors):
             self.plan_tree.heading(c, text=ttl)
             self.plan_tree.column(c, width=w, minwidth=mn, anchor=anc,
@@ -714,8 +715,9 @@ class App:
         sb.pack(side="right", fill="y")
         self.plan_tree.bind("<<TreeviewSelect>>", self._on_plan_select)
         self.plan_rows = []
+        self._plan_after_id = None
 
-    def refresh_plan(self):
+    def refresh_plan(self, silent: bool = False):
         """Tính lại bảng kế hoạch từ hồ sơ trạm/kính + flux ATNF (không cần SDR)."""
         import psr_site as _site
         import psr_targets as _T
@@ -727,8 +729,20 @@ class App:
         sefd = band.sefd_jy(tel)
         hpbw = tel.hpbw_deg(band.fc_mhz)
         now = _dt.now()
+        jd_now = _T.jd_from_datetime(now)
+
+        prev_name = None
+        if silent:
+            sel = self.plan_tree.selection()
+            if sel:
+                for r in getattr(self, "plan_rows", []):
+                    if r["iid"] == sel[0]:
+                        prev_name = r["name"]
+                        break
+
         self.plan_tree.delete(*self.plan_tree.get_children())
         self.plan_rows = []
+        pick_iid = None
         for t in _T.all_pulsars():
             if t.get("P") is None or t.get("dm") is None:
                 continue
@@ -737,29 +751,55 @@ class App:
                 snr_h = (_S.snr_fold(s_jy, sefd, band.bw_mhz * 1e6, 3600.0,
                                      t["P"], w_s) if s_jy else 0.0)
                 tr = _T.transit_local(t["ra"], now).strftime("%H:%M")
-                alt = _T.alt_max(t["dec"])
+                alt_now = float(_T.alt_deg(t["ra"], t["dec"], jd_now))
+                alt_m = float(_T.alt_max(t["dec"]))
                 dmmax = max(100.0, 1.5 * float(t["dm"]))
                 if snr_h > 0:
                     need_s = (8.0 / snr_h) ** 2 * 3600.0
-                    need = ("{:.0f} phút".format(need_s / 60) if need_s < 5400
-                            else "{:.1f} h".format(need_s / 3600))
+                    if need_s < 60.0:
+                        need = "{:.0f} giây".format(max(1.0, round(need_s)))
+                    elif need_s < 5400.0:
+                        need = "{:.0f} phút".format(need_s / 60.0)
+                    else:
+                        need = "{:.1f} h".format(need_s / 3600.0)
                 else:
                     need = "—"
+                tags = ("below_horizon",) if alt_now < 0.0 else ()
                 iid = self.plan_tree.insert("", "end", values=(
-                    t["name"], tr, "{:.1f}°".format(alt), "{:.1f}".format(snr_h),
-                    need, "{:.0f}".format(dmmax)))
+                    t["name"], tr, "{:.1f}°".format(alt_now),
+                    "{:.1f}°".format(alt_m), "{:.1f}".format(snr_h),
+                    need, "{:.0f}".format(dmmax)), tags=tags)
                 self.plan_rows.append(dict(iid=iid, name=t["name"],
                                            dm=float(t["dm"]), snr_h=snr_h))
+                if prev_name and t["name"] == prev_name:
+                    pick_iid = iid
             except Exception:
                 continue
         if self.plan_rows:
-            first = self.plan_rows[0]["iid"]
-            self.plan_tree.selection_set(first)
-            self.plan_tree.focus(first)
-            self._on_plan_select(None)
+            target_iid = pick_iid or self.plan_rows[0]["iid"]
+            self.plan_tree.selection_set(target_iid)
+            self.plan_tree.focus(target_iid)
+            if not silent:
+                self._on_plan_select(None)
         self.plan_profile_lbl.configure(
-            text="{} · {} {:.0f} MHz · B {:g} MHz · SEFD {:.1f} kJy · HPBW {:.2f}°".format(
-                prof.id, band.id, band.fc_mhz, band.bw_mhz, sefd / 1e3, hpbw))
+            text="{} · {} {:.0f} MHz · B {:g} MHz · SEFD {:.1f} kJy · HPBW {:.2f}° · {}".format(
+                prof.id, band.id, band.fc_mhz, band.bw_mhz, sefd / 1e3, hpbw,
+                now.strftime("%H:%M:%S")))
+        self._schedule_plan_refresh()
+
+    def _schedule_plan_refresh(self) -> None:
+        """Tự cập nhật Alt (now) mỗi 45 giây."""
+        jid = getattr(self, "_plan_after_id", None)
+        if jid is not None:
+            try:
+                self.root.after_cancel(jid)
+            except Exception:                 # noqa: BLE001
+                pass
+        try:
+            self._plan_after_id = self.root.after(
+                45_000, lambda: self.refresh_plan(silent=True))
+        except Exception:                     # noqa: BLE001
+            self._plan_after_id = None
 
     def _on_plan_select(self, _evt=None):
         sel = self.plan_tree.selection()
@@ -1029,13 +1069,61 @@ class App:
 
 
     def _build_detect_tab(self):
+        # Vùng cuộn dọc cho Tab 2: ở cửa sổ lớn hiển thị trọn vẹn không cần
+        # cuộn; ở cửa sổ thấp (1100×680) hoặc khi mở Chi tiết ▾ thì khung
+        # Biểu đồ kết quả vẫn giữ đủ chiều cao để xem 4 panel không bị bóp.
+        _dcv = self._det_cv = tk.Canvas(
+            self.tab_det, highlightthickness=0, bd=0,
+            background=self.pal["bg"])
+        _dvsb = ttk.Scrollbar(self.tab_det, orient="vertical",
+                              command=_dcv.yview)
+        _dcv.configure(yscrollcommand=_dvsb.set)
+        _dcv.pack(side="left", fill="both", expand=True)
+        _dvsb.pack(side="right", fill="y")
+
+        host = self._det_body = ttk.Frame(_dcv)
+        host.columnconfigure(0, weight=1)
+        _dwin = _dcv.create_window((0, 0), window=host, anchor="nw")
+
+        def _sync_det_scroll(_e=None):
+            try:
+                cw = _dcv.winfo_width()
+                ch = _dcv.winfo_height()
+                if cw <= 1 or ch <= 1:
+                    return
+                rh = host.winfo_reqheight()
+                _dcv.itemconfigure(_dwin, width=cw, height=max(ch, rh))
+                _dcv.configure(scrollregion=(0, 0, cw, max(ch, rh)))
+            except tk.TclError:
+                pass
+
+        host.bind("<Configure>", _sync_det_scroll)
+        _dcv.bind("<Configure>", _sync_det_scroll)
+
+        def _det_wheel(ev):
+            try:
+                if getattr(self, "det_canvas", None) is not None and ev.widget is self.det_canvas.get_tk_widget():
+                    return
+                if host.winfo_height() > _dcv.winfo_height() + 2:
+                    _dcv.yview_scroll(-1 if ev.delta > 0 else 1, "units")
+            except tk.TclError:
+                pass
+            return "break"
+
+        _dcv.bind("<Enter>", lambda _e: _dcv.bind_all("<MouseWheel>", _det_wheel))
+        _dcv.bind("<Leave>", lambda _e: _dcv.unbind_all("<MouseWheel>"))
+
         # ---- dải bước: Chọn dữ liệu → Kiểm tra → Cấu hình → Phân tích → Kết quả
-        self._build_detect_steps()
+        self._det_steps_bar = self._build_detect_steps(parent=host)
+        self._det_steps_bar.grid(
+            row=0, column=0, sticky="ew",
+            padx=theme.sp(6), pady=(theme.sp(6), 0))
 
         f = self._cfg_box = ttk.LabelFrame(
-            self.tab_det,
+            host,
             text=L.t("Phát hiện pulsar trên file filterbank (.fil)"))
-        f.pack(fill="x", padx=8, pady=(theme.sp(6), theme.sp(6)))
+        f.grid(row=1, column=0, sticky="ew",
+               padx=8, pady=(theme.sp(6), theme.sp(6)))
 
         ttk.Button(f, text=L.t("Chọn file .fil…"), command=self.pick_fil).grid(
             row=0, column=0, padx=4, pady=4)
@@ -1070,8 +1158,9 @@ class App:
         # + nút Chi tiết), dòng 2 = M3. Trước đây hai LabelFrame riêng = 2 tiêu
         # đề + 2 lớp lề ≈ 110 px mất cho hình, mà hình mới là thứ cần chỗ.
         self.info_box = ttk.LabelFrame(
-            self.tab_det, text=L.t("Thông tin lần chạy"))
-        self.info_box.pack(fill="x", padx=8, pady=(0, theme.sp(4)))
+            host, text=L.t("Thông tin lần chạy"))
+        self.info_box.grid(row=2, column=0, sticky="ew",
+                           padx=8, pady=(0, theme.sp(4)))
         self.guard_box = ttk.Frame(self.info_box)
         self.guard_box.pack(fill="x", padx=theme.sp(4), pady=(theme.sp(2), 0))
         _gh = ttk.Frame(self.guard_box)
@@ -1110,8 +1199,8 @@ class App:
                    command=lambda: self.open_result_file("fig3_period.png")).pack(
             side="right", padx=6, pady=4)
 
-        bf = self._btn_row = ttk.Frame(self.tab_det)
-        bf.pack(fill="x", padx=8)
+        bf = self._btn_row = ttk.Frame(host)
+        bf.grid(row=3, column=0, sticky="ew", padx=8)
         self.btn_det = ttk.Button(bf, text=L.t("▶ Chạy phát hiện"), command=self.run_detect)
         self.btn_det.pack(side="left", padx=4, pady=4)
         ttk.Button(bf, text=L.t("Mở báo cáo TXT"),
@@ -1121,14 +1210,12 @@ class App:
         ttk.Button(bf, text=L.t("Mở thư mục kết quả của lần chạy"),
                    command=self.open_last_result_dir).pack(side="left", padx=4)
 
-        # ---- hiển thị biểu đồ
-        vf = ttk.LabelFrame(self.tab_det, text=L.t("Biểu đồ kết quả"))
-        # KHÔNG dùng before=self._btn_row: trong pack, ai vào cavity trước được
-        # cấp kích thước trước. Chèn hình (expand=True) lên trước hàng nút thì
-        # hình ăn hết chỗ → hàng nút nhận 0 px và biến mất khỏi màn hình.
-        vf.pack(fill="both", expand=True, padx=8, pady=(6, 4))
-        top = ttk.Frame(vf)
-        top.pack(fill="x")
+        # ---- hiển thị biểu đồ (đảm bảo tối thiểu 380 px để luôn nhìn rõ 4 view)
+        host.rowconfigure(4, weight=1, minsize=theme.sp(380))
+        vf = ttk.LabelFrame(host, text=L.t("Biểu đồ kết quả"))
+        vf.grid(row=4, column=0, sticky="nsew", padx=8, pady=(6, 4))
+        top = self._fig_top_row = ttk.Frame(vf)
+        top.pack(fill="x", padx=4, pady=(2, 0))
         ttk.Label(top, text=L.t("Hình:")).pack(side="left", padx=4)
         self.det_figpick = ttk.Combobox(top, values=[], width=42)
         self.det_figpick.pack(side="left", padx=4)
@@ -1136,10 +1223,10 @@ class App:
         ttk.Button(top, text=L.t("Mở toàn hình bằng trình xem ảnh"),
                    command=self.open_figure_external).pack(side="left", padx=4)
         # Preview panel A/B/C/D; mở toàn hình bằng trình xem ảnh ngoài.
-        prow = ttk.Frame(vf)
-        prow.pack(fill="x", padx=4, pady=(2, 0))
+        prow = self._fig_panel_row = ttk.Frame(vf)
+        prow.pack(fill="x", padx=4, pady=(4, 4))
         ttk.Label(prow, text=L.t("Xem:"), style="Muted.TLabel").pack(
-            side="left", padx=(2, 6))
+            side="left", padx=(4, 8))
         self.fig_panel = tk.StringVar(value="a")
         self._panel_btns = {}
         try:
@@ -1149,38 +1236,68 @@ class App:
             _labels = [("a", "a"), ("b", "b"), ("c", "c"), ("d", "d")]
         for key, lab in _labels:
             b = ttk.Button(prow, text=f"{key.upper()} · {lab}",
-                           style="Ghost.TButton", width=16,
+                           style="PanelTab.TButton",
                            command=lambda k=key: self.select_panel(k))
-            b.pack(side="left", padx=2)
+            b.pack(side="left", padx=(0, 6))
             self._panel_btns[key] = b
-        self._sync_panel_buttons()
+
+        # Thanh điều khiển zoom/giãn trục kiểu Desmos / GeoGebra
+        zbar = ttk.Frame(prow)
+        zbar.pack(side="right", padx=(6, 0))
+        self._axis_mode_btns = {}
+        for mkey, mlab in (("xy", "X+Y"), ("x", "Chỉ X"), ("y", "Chỉ Y")):
+            mb = ttk.Button(zbar, text=L.t(mlab),
+                            style=("PanelTabSel.TButton" if mkey == "xy" else "PanelTab.TButton"),
+                            command=lambda mk=mkey: self.set_zoom_axis_mode(mk))
+            mb.pack(side="left", padx=(0, 3))
+            self._axis_mode_btns[mkey] = mb
+        self.det_auto_y = tk.BooleanVar(value=True)
+        ttk.Checkbutton(zbar, text=L.t("Tự khớp Y"),
+                        variable=self.det_auto_y,
+                        command=self._toggle_auto_y).pack(side="left", padx=(4, 4))
+        ttk.Button(zbar, text=L.t("↺ 1:1"), style="PanelTab.TButton",
+                   command=self.reset_figure_zoom).pack(side="left", padx=(0, 6))
+        self._zoom_lbl = ttk.Label(zbar, text="1.0×", style="Muted.TLabel")
+        self._zoom_lbl.pack(side="left")
+        self._cursor_lbl = ttk.Label(top, text="", style="Card.TLabel")
+        self._cursor_lbl.pack(side="right", padx=(8, 4))
 
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        # Preview tĩnh một panel; không gắn toolbar hoặc handler zoom.
-        self.det_fig = Figure(figsize=(9, 5.2), facecolor=self.pal["surface"])
+        self.det_fig = Figure(figsize=(6.0, 2.4), facecolor="#FFFFFF")
         self.det_canvas = FigureCanvasTkAgg(self.det_fig, master=vf)
         try:
             self.det_canvas.get_tk_widget().configure(
-                background=self.pal["surface"], highlightthickness=0)
+                background="#FFFFFF", highlightthickness=0)
         except tk.TclError:
             pass
+        import psr_render as _pr_ctrl
+        self.det_zoom = _pr_ctrl.InteractivePlotController(
+            self.det_canvas, on_change=self._on_zoom_change,
+            on_hover=self._on_plot_hover)
         # Bề mặt RASTER: Label + PhotoImage thuần Tk (KHÔNG matplotlib) —
         # hết vòng resize/aspect của TkAgg từng gây cắt trục / hồ vẽ cũ.
         self._fig_img = None
+        self._fig_pil_src = None
+        self._fig_last_box = (0, 0)
+        self._fig_mode = "idle"
         self._fig_img_lbl = tk.Label(vf, background=self.pal["surface"],
-                                     anchor="nw")
+                                     anchor="center")
         self._fig_hint = ttk.Label(vf, style="Muted.TLabel", text="")
-        self._fig_hint.pack(side="bottom", anchor="w", padx=8)
+        self._fig_hint.pack(side="bottom", anchor="w", padx=8, pady=(2, 4))
         self._set_fig_hint("idle")
         self._fig_host = vf
         self._fig_aspect = 9.0 / 5.2     # tỉ lệ khung hiện tại (rộng : cao)
-        self.det_canvas.get_tk_widget().pack(fill="x", expand=False,
+        self.det_canvas.get_tk_widget().pack(anchor="center", expand=False,
                                              before=self._fig_hint)
-        vf.bind("<Configure>", lambda _e: self._fit_fig_canvas())
+        vf.bind("<Configure>", lambda _e: self._on_fig_host_configure())
+        self.nb.bind("<<NotebookTabChanged>>",
+                     lambda _e: self.root.after_idle(self._on_fig_host_configure),
+                     add="+")
         self._refresh_figure_list()
+        self._sync_panel_buttons()
 
-    def _build_detect_steps(self) -> None:
+    def _build_detect_steps(self, parent=None) -> ttk.Frame:
         """Dải bước của Tab 2 (đọc là biết đang ở đâu, không cần đoán).
 
         Mỗi bước có BIỂU TƯỢNG + CHỮ: ✔ xong · ▸ đang làm · ○ chưa tới.
@@ -1188,8 +1305,7 @@ class App:
         self.det_steps = (
             L.t("Chọn dữ liệu"), L.t("Kiểm tra đầu vào"), L.t("Cấu hình"),
             L.t("Phân tích"), L.t("Kết quả"))
-        bar = ttk.Frame(self.tab_det)
-        bar.pack(fill="x", padx=theme.sp(6), pady=(theme.sp(6), 0))
+        bar = ttk.Frame(parent if parent is not None else self.tab_det)
         self.det_step_lbl = []
         for i, name in enumerate(self.det_steps):
             lb = ttk.Label(bar, text="○ " + name, style="Muted.TLabel")
@@ -1200,6 +1316,7 @@ class App:
                     side="left", padx=(0, theme.sp(4)))
         self.det_step = -1
         self.set_detect_step(0)
+        return bar
 
     def set_detect_step(self, idx: int) -> None:
         """Đánh dấu bước hiện tại: các bước trước = ✔, bước này = ▸."""
@@ -1432,13 +1549,14 @@ class App:
     def _on_destroy(self, evt=None) -> None:
         if evt is not None and getattr(evt, "widget", None) is not self.root:
             return
-        pid = getattr(self, "_poll_id", None)
-        if pid:
-            try:
-                self.root.after_cancel(pid)
-            except tk.TclError:
-                pass
-            self._poll_id = None
+        for attr in ("_poll_id", "_plan_after_id", "_cfg_after_id"):
+            pid = getattr(self, attr, None)
+            if pid:
+                try:
+                    self.root.after_cancel(pid)
+                except tk.TclError:
+                    pass
+                setattr(self, attr, None)
 
     def _poll_queue(self):
         try:
@@ -2001,35 +2119,41 @@ class App:
         stem = os.path.basename(str(m.get("out_dir") or "").rstrip("/" + chr(92)))
         if not stem:
             stem = os.path.splitext(os.path.basename(self.det_file.get().strip()))[0]
-        cand = f"{stem}/fig2_detection.png"
-        if cand in self.det_figpick.cget("values"):
-            self.det_figpick.set(cand)
+        cand_a = f"{stem}/fig2_panel_a.png"
+        cand_2 = f"{stem}/fig2_detection.png"
+        vals = self.det_figpick.cget("values") or []
+        if cand_a in vals:
+            self.fig_panel.set("a")
+            self.det_figpick.set(cand_a)
+            self.show_selected_figure()
+        elif cand_2 in vals:
+            self.fig_panel.set("a")
+            self.det_figpick.set(cand_2)
             self.show_selected_figure()
 
     def _refresh_figure_list(self):
-        """Liệt kê ảnh dạng '<thư mục con>/<tên>.png' — mỗi lần chạy một thư mục."""
+        """Liệt kê ảnh dạng '<thư mục con>/<tên>.png' — gồm cả 4 graph đơn lẻ."""
         figs = []
         if os.path.isdir(RESULTS_DIR):
             for d in sorted(os.listdir(RESULTS_DIR)):
                 sub = os.path.join(RESULTS_DIR, d)
                 if os.path.isdir(sub):
-                    # fig2_panel_*.png là file nội bộ của khung xem A–D,
-                    # không đưa vào dropdown (tránh nhiễu 4 mục mỗi lần chạy).
                     figs += [f"{d}/{f}" for f in sorted(os.listdir(sub))
-                             if f.endswith(".png")
-                             and not f.startswith("fig2_panel_")]
+                             if f.endswith(".png")]
             # ảnh cũ nằm rời trong results/ (bản trước) vẫn hiện được
             figs += sorted(f for f in os.listdir(RESULTS_DIR)
                            if f.endswith(".png"))
         self.det_figpick.configure(values=figs)
         if figs and not self.det_figpick.get():
-            self.det_figpick.set(figs[-1])
+            # ưu tiên chọn graph đơn lẻ fig2_panel_a.png của lần chạy mới nhất
+            _pa = [x for x in figs if x.endswith("/fig2_panel_a.png")]
+            self.det_figpick.set(_pa[-1] if _pa else figs[-1])
             self.show_selected_figure()
 
     HINT_MODES = {
-        "vector": "Preview panel đã chọn.",
-        "raster": "Preview PNG panel đã chọn.",
-        "idle": "Chọn panel A/B/C/D để xem.",
+        "vector": "Lăn chuột: zoom · Kéo: di chuyển · Kéo/lăn trực tiếp trên trục X hoặc Y để giãn trục · Nháy đúp/R: về ban đầu.",
+        "raster": "Lăn chuột: zoom · Kéo: di chuyển · Nháy đúp/R: về ban đầu.",
+        "idle": "Chọn panel A/B/C/D để xem và kéo giãn X/Y.",
     }
 
     def _show_fig_placeholder(self, text: str) -> None:
@@ -2041,6 +2165,8 @@ class App:
             ax.text(0.5, 0.5, text, ha="center", va="center",
                     fontsize=11, color="0.45", transform=ax.transAxes)
             ax.set_axis_off()
+            self._fig_pil_src = None
+            self._fig_last_box = (0, 0)
             self._fig_aspect = 9.0 / 5.2
             self._show_fig_surface(vector=True)
             self._fit_fig_canvas()
@@ -2050,42 +2176,93 @@ class App:
         except Exception:                 # noqa: BLE001
             pass
 
-    def select_panel(self, key: str) -> None:
-        """Chọn panel A–D; nút chỉ hợp lệ với fig2_detection.png.
+    def set_zoom_axis_mode(self, mode: str) -> None:
+        if hasattr(self, "det_zoom"):
+            self.det_zoom.set_axis_mode(mode)
+        for mkey, btn in getattr(self, "_axis_mode_btns", {}).items():
+            try:
+                btn.configure(style="PanelTabSel.TButton" if mkey == mode else "PanelTab.TButton")
+            except tk.TclError:
+                pass
 
-        Nếu ô Hình: đang chọn fig1_overview.png (2 hàng) hay ảnh khác thì tự
-        chuyển sang fig2_detection.png CỦA LẦN CHẠY ĐÓ; lần chạy không có
-        fig2 thì báo rõ và giữ nguyên hình đang xem (không cắt tứ phân vị oan).
-        """
+    def _toggle_auto_y(self) -> None:
+        if hasattr(self, "det_zoom") and hasattr(self, "det_auto_y"):
+            self.det_zoom.set_auto_y(bool(self.det_auto_y.get()))
+
+    def reset_figure_zoom(self) -> None:
+        if hasattr(self, "det_zoom"):
+            self.det_zoom.reset()
+
+    def _on_zoom_change(self, zx: float, zy: float) -> None:
+        try:
+            if abs(zx - 1.0) < 0.03 and abs(zy - 1.0) < 0.03:
+                txt = "1.0×"
+            else:
+                txt = f"X {zx:.1f}× · Y {zy:.1f}×"
+            self._zoom_lbl.configure(text=txt)
+        except Exception:                 # noqa: BLE001
+            pass
+
+    def _on_plot_hover(self, info) -> None:
+        """Hiển thị giá trị tức thời (x, y) tại điểm con trỏ đang trỏ trên đồ thị."""
+        lbl = getattr(self, "_cursor_lbl", None)
+        if lbl is None:
+            return
+        if not info:
+            lbl.configure(text="")
+            return
+        try:
+            import re as _re
+            x_val, y_val, xlab, ylab, _snapped = info
+            ux = _re.findall(r"[(]([^()]*)[)]\s*$", xlab or "")
+            uy = _re.findall(r"[(]([^()]*)[)]\s*$", ylab or "")
+            ux_s = f" {ux[-1].replace('$', '')}" if ux else ""
+            uy_s = f" {uy[-1].replace('$', '')}" if uy else ""
+            lbl.configure(text=f"📍 x = {x_val:.3f}{ux_s}  |  y = {y_val:.3f}{uy_s}")
+        except Exception:                 # noqa: BLE001
+            pass
+
+    def select_panel(self, key: str) -> None:
+        """Chọn graph đơn lẻ A–D (ưu tiên fig2_panel_<key>.png, dự phòng fig2_detection.png)."""
         if key not in {"a", "b", "c", "d"}:
             return
         name = (self.det_figpick.get() or "").replace("\\", "/")
-        if os.path.basename(name) != "fig2_detection.png":
-            run_dir = os.path.dirname(name)
-            cand = (f"{run_dir}/fig2_detection.png" if run_dir
-                    else "fig2_detection.png")
-            if cand in (self.det_figpick.cget("values") or []) or                     os.path.exists(os.path.join(RESULTS_DIR, cand)):
-                self.det_figpick.set(cand)
-            else:
-                self.log(L.t("Lần chạy này không có fig2_detection.png — "
-                             "các nút A–D chỉ áp dụng cho fig2. "
-                             "Xem toàn hình bằng trình xem ảnh."), "warn")
-                self._sync_panel_buttons()   # xoá highlight cũ của lần trước
-                return
+        run_dir = os.path.dirname(name)
+        cand_panel = (f"{run_dir}/fig2_panel_{key}.png" if run_dir
+                      else f"fig2_panel_{key}.png")
+        cand_fig2 = (f"{run_dir}/fig2_detection.png" if run_dir
+                     else "fig2_detection.png")
+        vals = self.det_figpick.cget("values") or []
+        if cand_panel in vals or os.path.exists(os.path.join(RESULTS_DIR, cand_panel)):
+            self.det_figpick.set(cand_panel)
+        elif cand_fig2 in vals or os.path.exists(os.path.join(RESULTS_DIR, cand_fig2)):
+            self.det_figpick.set(cand_fig2)
+        else:
+            self.log(L.t("Lần chạy này không có fig2_detection.png — "
+                         "các nút A–D chỉ áp dụng cho fig2. "
+                         "Xem toàn hình bằng trình xem ảnh."), "warn")
+            self._sync_panel_buttons()
+            return
         self.fig_panel.set(key)
         self._sync_panel_buttons()
         self.show_selected_figure()
 
     def _sync_panel_buttons(self) -> None:
-        current = getattr(self, "fig_panel", tk.StringVar(value="a")).get()
         name = (self.det_figpick.get() if getattr(self, "det_figpick", None)
                 else "") or ""
-        is_fig2 = os.path.basename(name.replace("\\", "/")) == "fig2_detection.png"
+        bname = os.path.basename(name.replace("\\", "/"))
+        for _pk in ("a", "b", "c", "d"):
+            if bname == f"fig2_panel_{_pk}.png" and getattr(self, "fig_panel", None):
+                self.fig_panel.set(_pk)
+                break
+        current = getattr(self, "fig_panel", tk.StringVar(value="a")).get()
+        is_fig2 = (bname == "fig2_detection.png"
+                   or bname in {f"fig2_panel_{k}.png" for k in ("a", "b", "c", "d")})
         for key, button in getattr(self, "_panel_btns", {}).items():
             try:
-                button.configure(style="NavSel.TButton"
+                button.configure(style="PanelTabSel.TButton"
                                  if (is_fig2 and key == current)
-                                 else "Ghost.TButton")
+                                 else "PanelTab.TButton")
             except tk.TclError:
                 pass
 
@@ -2097,35 +2274,104 @@ class App:
         except Exception:                 # noqa: BLE001
             pass
 
-    def _fit_fig_canvas(self) -> None:
-        """Khoá chiều cao khung xem theo tỉ lệ GỐC của hình — không kéo dãn.
+    def _fig_avail_box(self) -> tuple[int, int]:
+        """Diện tích THẬT còn trống cho vùng vẽ bên trong khung Biểu đồ kết quả.
 
-        FigureCanvasTkAgg tự đổi kích thước Figure theo widget; nếu widget dàn
-        theo cửa sổ thì panel bị méo (đã gặp: (c)/(d) bị kéo dãn ngang). Vì
-        vậy: chiều rộng theo khung chứa, chiều cao = rộng / tỉ lệ gốc.
-
-        Chặn TRÊN theo chiều cao THẬT của notebook (vùng tab hiển thị được):
-        page của ttk.Notebook CẮT phần con tràn ra ngoài mà không có scrollbar
-        (đã gặp: trục X của panel (a)/(b) bị cắt mất đáy). winfo_height của
-        khung chứa con vô dụng vì nó cũng phình theo canvas.
+        Tính theo chiều cao khung nhìn `_det_cv` (không phụ thuộc chiều cao
+        tự phình của `vf`) để triệt vòng lặp tăng kích thước mỗi lần vẽ lại.
         """
+        host = getattr(self, "_fig_host", None)
+        dcv = getattr(self, "_det_cv", None)
+        if host is None or dcv is None:
+            return (0, 0)
+        hw = host.winfo_width()
+        ch = dcv.winfo_height()
+        if hw <= 20 or ch <= 20:
+            return (0, 0)
+        top_h = 0
+        for w in (getattr(self, "_det_steps_bar", None),
+                  getattr(self, "_cfg_box", None),
+                  getattr(self, "info_box", None),
+                  getattr(self, "_btn_row", None)):
+            if w is not None:
+                top_h += max(w.winfo_height(), w.winfo_reqheight(), 0)
+        vf_over = 34
+        for w in (getattr(self, "_fig_top_row", None),
+                  getattr(self, "_fig_panel_row", None),
+                  getattr(self, "_fig_hint", None)):
+            if w is not None:
+                vf_over += max(w.winfo_height(), w.winfo_reqheight(), 0)
+        avail_h = max(ch - top_h - vf_over - 54, theme.sp(240))
+        return (max(hw - 16, 160), avail_h)
+
+    def _on_fig_host_configure(self) -> None:
+        """Debounce sự kiện đổi kích thước để kéo cửa sổ mượt, không giật."""
+        jid = getattr(self, "_cfg_after_id", None)
+        if jid is not None:
+            try:
+                self.root.after_cancel(jid)
+            except Exception:                 # noqa: BLE001
+                pass
+        self._cfg_after_id = self.root.after(45, self._apply_fig_resize)
+
+    def _apply_fig_resize(self) -> None:
+        self._cfg_after_id = None
+        if getattr(self, "_fig_mode", "idle") == "raster":
+            self._fit_fig_raster()
+        else:
+            if self._fit_fig_canvas():
+                try:
+                    self.det_canvas.draw_idle()
+                except Exception:             # noqa: BLE001
+                    pass
+
+    def _fit_fig_raster(self) -> None:
+        """Scale ảnh raster từ bản gốc đã cache vừa khít (aw, ah), không cắt đáy."""
+        im = getattr(self, "_fig_pil_src", None)
+        if im is None:
+            return
+        try:
+            from PIL import Image, ImageTk
+            aw, ah = self._fig_avail_box()
+            if aw <= 0 or ah <= 0:
+                aw, ah = 640, 260
+            if (aw, ah) == getattr(self, "_fig_last_box", (0, 0)) and self._fig_img is not None:
+                return
+            sc = max(min(aw / max(im.width, 1), ah / max(im.height, 1)), 0.05)
+            nw = max(1, int(round(im.width * sc)))
+            nh = max(1, int(round(im.height * sc)))
+            im2 = im.resize((nw, nh), Image.LANCZOS)
+            self._fig_img = ImageTk.PhotoImage(im2)      # giữ tham chiếu
+            self._fig_img_lbl.configure(image=self._fig_img)
+            self._fig_last_box = (aw, ah)
+        except Exception:                 # noqa: BLE001
+            pass
+
+    def _fit_fig_canvas(self) -> bool:
+        """Khoá khung vector theo tỉ lệ GỐC và đồng bộ 1:1 kích thước Figure ↔ tk.Canvas."""
         try:
             host = getattr(self, "_fig_host", None)
             widget = self.det_canvas.get_tk_widget()
             if host is None:
-                return
-            pw = max(host.winfo_width(), 240)
-            try:
-                nb_h = self.nb.winfo_height()
-            except Exception:                 # noqa: BLE001
-                nb_h = 0
-            # ~170 px: hàng 'Hình:' + hàng nút A–D + nhãn gợi ý + lề padding
-            ph = max(nb_h - 170, 240) if nb_h > 420 else max(host.winfo_height(), 160)
-            h = max(int(min(ph, pw / max(self._fig_aspect, 1e-6))), 160)
-            if abs(widget.winfo_height() - h) > 1:
-                widget.configure(height=h)
+                return False
+            aw, ah = self._fig_avail_box()
+            if aw <= 0 or ah <= 0:
+                aw, ah = 640, 260
+            asp = max(float(getattr(self, "_fig_aspect", 9.0 / 5.2)), 1e-6)
+            h = max(int(min(ah, aw / asp)), 80)
+            w = max(int(min(aw, h * asp)), 120)
+            changed = (abs(widget.winfo_width() - w) > 2
+                       or abs(widget.winfo_height() - h) > 2)
+            if changed:
+                widget.configure(width=w, height=h)
+            dpi = float(self.det_fig.get_dpi() or 100.0)
+            fw, fh = self.det_fig.get_size_inches()
+            if abs(fw * dpi - w) > 2 or abs(fh * dpi - h) > 2:
+                self.det_fig.set_size_inches(w / dpi, h / dpi, forward=False)
+                changed = True
+            return changed
         except Exception:                 # noqa: BLE001
-            pass
+            return False
 
     _FALLBACK_CROPS = {      # 2×2 KHÔNG có fig2_detection_panels.json (chạy cũ)
         "a": (0.02, 0.065, 0.50, 0.505), "b": (0.50, 0.065, 0.985, 0.505),
@@ -2168,52 +2414,62 @@ class App:
             if vector:
                 self._fig_img_lbl.pack_forget()
                 if not w.winfo_ismapped():
-                    w.pack(fill="x", before=self._fig_hint)
+                    w.pack(anchor="center", expand=True, before=self._fig_hint)
             else:
                 w.pack_forget()
                 if not self._fig_img_lbl.winfo_ismapped():
-                    self._fig_img_lbl.pack(fill="x", before=self._fig_hint)
+                    self._fig_img_lbl.pack(fill="both", expand=True, before=self._fig_hint)
         except Exception:                 # noqa: BLE001
             pass
 
     def show_selected_figure(self, event=None):
-        """Hiển thị preview một panel; không có cơ chế zoom trong ứng dụng."""
+        """Hiển thị một graph đơn lẻ trên canvas vector với zoom/giãn trục Desmos/GeoGebra."""
+        self._sync_panel_buttons()
         name = self.det_figpick.get()
         path = os.path.join(RESULTS_DIR, name) if name else None
         if not path or not os.path.exists(path):
             return
         try:
             import psr_render
+            bname = os.path.basename(name.replace("\\", "/"))
+            _dir_sel = os.path.dirname(name.replace("/", os.sep))
+            _is_panel = (bname == "fig2_detection.png"
+                         or bname in {f"fig2_panel_{k}.png" for k in ("a", "b", "c", "d")})
             _m = getattr(self, "_last_metrics", None) or {}
             _rd = _m.get("_render")
             _out = str(_m.get("out_dir") or "").rstrip("/" + chr(92))
             _stem = os.path.basename(_out)
-            _dir_sel = os.path.dirname(name.replace("/", os.sep))
-            if (_rd is not None and _stem and _dir_sel == _stem and
-                    os.path.basename(name) == "fig2_detection.png"):
+            if not (_rd is not None and _stem and _dir_sel == _stem):
+                _cached = getattr(self, "_cached_render", None)
+                if _cached is not None and _cached[0] == _dir_sel:
+                    _rd = _cached[1]
+                else:
+                    _rd = psr_render.load_render_cache(
+                        os.path.join(RESULTS_DIR, _dir_sel))
+                    self._cached_render = (_dir_sel, _rd)
+
+            if _rd is not None and _is_panel:
                 _key = self.fig_panel.get()
                 self._fig_aspect = float(getattr(psr_render, "PANEL_ASPECT",
                                                  {}).get(_key, 9.0 / 5.2))
-                psr_render.draw_panel(_rd, self.det_fig, which=_key)
-                self.det_fig.patch.set_facecolor(self.pal["surface"])
                 self._show_fig_surface(vector=True)
                 self._fit_fig_canvas()
+                psr_render.draw_panel(_rd, self.det_fig, which=_key, resize_fig=False)
+                self.det_fig.patch.set_facecolor("#FFFFFF")
                 self.det_canvas.draw()
+                if hasattr(self, "det_zoom"):
+                    self.det_zoom.set_home()
                 self._fig_mode = "vector"
                 self._set_fig_hint("vector")
                 return
-            # Ảnh raster bằng TK THUẦN (Label + PhotoImage, scale contain-fit
-            # theo cả 2 chiều) — KHÔNG qua matplotlib nên không còn vòng
-            # resize TkAgg từng gây cắt trục X/Y, hình méo, hồ vẽ cũ.
-            # Ưu tiên file panel riêng fig2_panel_<key>.png (chạy mới xuất
-            # sẵn); chạy cũ → cắt từ fig2 ghép theo bbox JSON/fallback; hình
-            # khác (fig1_overview 2 hàng…) hiển thị nguyên khung.
-            from PIL import Image, ImageTk
-            _stem0 = os.path.splitext(os.path.basename(name))[0]
+
+            # Fallback cho ảnh không có cache vector (fig1_overview, fig3_period, chạy cũ):
+            # vẽ lên chính det_canvas để vẫn zoom/pan được trên một giao diện thống nhất.
+            from PIL import Image
+            _stem0 = os.path.splitext(bname)[0]
             _panel_png = None
             if _stem0 == "fig2_detection":
-                _pp = os.path.join(RESULTS_DIR,
-                                   os.path.dirname(name.replace("/", os.sep)),
+                _pp = os.path.join(RESULTS_DIR, _dir_sel,
                                    f"fig2_panel_{self.fig_panel.get()}.png")
                 if os.path.exists(_pp):
                     _panel_png = _pp
@@ -2224,29 +2480,32 @@ class App:
                 im = im.crop((int(_cx0 * _W), int(_cy0 * _H),
                               max(int(_cx1 * _W), int(_cx0 * _W) + 1),
                               max(int(_cy1 * _H), int(_cy0 * _H) + 1)))
-            _pw = max(self._fig_host.winfo_width(), 240)
-            try:
-                _nbh = self.nb.winfo_height()
-            except Exception:                 # noqa: BLE001
-                _nbh = 0
-            _ph = (max(_nbh - 170, 240) if _nbh > 420
-                   else max(self._fig_host.winfo_height(), 160))
-            _sc = max(min(_pw / max(im.width, 1), _ph / max(im.height, 1)),
-                      0.05)
-            im2 = im.resize((max(1, int(im.width * _sc)),
-                             max(1, int(im.height * _sc))), Image.LANCZOS)
-            self._fig_img = ImageTk.PhotoImage(im2)      # giữ tham chiếu
-            self._fig_img_lbl.configure(image=self._fig_img)
-            self._show_fig_surface(vector=False)
-            self._fig_mode = "raster"
+            self._fig_aspect = max(im.width / max(im.height, 1), 0.5)
+            self.det_fig.clear()
+            self.det_fig.patch.set_facecolor("#FFFFFF")
+            ax = self.det_fig.add_subplot(111)
+            ax.imshow(im)
+            ax.set_axis_off()
+            self.det_fig.tight_layout(pad=0.1)
+            self._show_fig_surface(vector=True)
+            self._fit_fig_canvas()
+            self.det_canvas.draw()
+            if hasattr(self, "det_zoom"):
+                self.det_zoom.set_home()
+            self._fig_mode = "vector"
             self._set_fig_hint("raster")
         except Exception as e:
             self.log(f"Không hiển thị được panel: {e!r}", "err")
 
     def open_figure_external(self):
-        """Mở nguyên PNG đã lưu bằng trình xem ảnh hệ thống."""
+        """Mở PNG đơn lẻ đang xem (ưu tiên fig2_panel_<key>.png) bằng trình xem ảnh."""
         name = self.det_figpick.get()
         p = os.path.join(RESULTS_DIR, name) if name else None
+        if p and os.path.basename(p) == "fig2_detection.png":
+            pp = os.path.join(os.path.dirname(p),
+                              f"fig2_panel_{self.fig_panel.get()}.png")
+            if os.path.exists(pp):
+                p = pp
         if p and os.path.exists(p):
             try:
                 os.startfile(p)

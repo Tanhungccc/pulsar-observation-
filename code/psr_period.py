@@ -231,9 +231,12 @@ def plot_period_search(res, ax=None, title="", tag=True):
         a0.set_yticks(range(len(vals))[::-1])
         a0.set_yticklabels(names, fontsize=8)
         a0.set_xlabel("SNR fold (σ)")
-        a0.axvline(res.get("threshold", 8.0), color=pp.C_PULSE, ls="--", lw=1.2,
-                   label=f"ngưỡng {res.get('threshold', 8.0):.0f}σ")
-        a0.legend(loc="lower right", fontsize=8)
+        a0.set_ylabel("ứng viên chu kỳ (ms)")
+        a0.axvline(res.get("threshold", 8.0), color="0.45", ls="-.", lw=1.1,
+                   label=f"ngưỡng phát hiện {res.get('threshold', 8.0):.0f}σ")
+        # chừa dải trống phía trên thanh bar đầu tiên để chú giải không đè bar
+        a0.set_ylim(-0.6, len(vals) - 0.4 + 1.15)
+        a0.legend(loc="upper right", fontsize=8, **pp._LEG_KW)
         a0.set_title(title or "Dò chu kỳ mù — Top-N ứng viên")
     # panel phải: hồ sơ fold tại P tốt nhất (nếu có)
     if best is not None and res.get("profile") is not None:
@@ -251,11 +254,11 @@ def plot_period_search(res, ax=None, title="", tag=True):
         axs[1].set_ylabel("tín hiệu (σ)")
         _snr = float(best["snr"])
         axs[1].set_title(f"Fold tại P = {best['p_s'] * 1e3:.3f} ms · "
-                         + (f"SNR {_snr:.1f}" if _snr < 1e4 else "SNR không xác định"))
+                         + (f"SNR {_snr:.1f}σ" if _snr < 1e4 else "SNR không xác định"))
     else:
         _note = res.get("fold_note") or "không có ứng viên vượt ngưỡng"
         axs[1].text(0.5, 0.5, _note, ha="center", va="center", fontsize=8.5,
-                    color="0.35", wrap=True, maxwidth=0.9,
+                    color="0.35", wrap=True,
                     transform=axs[1].transAxes)
         axs[1].set_title("Hồ sơ fold — không đủ cơ sở để gập")
     if tag:

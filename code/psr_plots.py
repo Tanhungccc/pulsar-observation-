@@ -597,14 +597,14 @@ def plot_dm_curve(dm_grid, snr, dm_meas=None, dm_true=None, dm_true_err=None,
         else:
             # Không tự bịa sai số catalogue khi chỉ truyền giá trị danh mục.
             ref_lbl = f"DM tham chiếu (catalogue) = {dm_true:.2f} pc cm$^{{-3}}$"
-        ax.plot([dm_true, dm_true], [y_lo, y_hi], ls="--", lw=1.3, color=C_TRUE,
+        ax.plot([dm_true, dm_true], [y_lo, y_hi], ls="--", lw=1.6, color=C_TRUE,
                 zorder=2, label=ref_lbl)
     if thr_visible:
         ax.plot([x0, x1], [threshold, threshold], ls="-.", lw=1.0, color="0.45",
                 zorder=2, label=f"ngưỡng phát hiện {threshold:.0f}σ")
     if dm_meas is not None:
-        ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls="-", lw=1.2, color=C_PULSE,
-                zorder=3, label=f"DM đo được = {dm_meas:.2f} pc cm$^{{-3}}$")
+        ax.plot([dm_meas, dm_meas], [y_lo, y_hi], ls="-", lw=1.1, color=C_PULSE,
+                alpha=0.88, zorder=3, label=f"DM đo được = {dm_meas:.2f} pc cm$^{{-3}}$")
     dx = max(x1 - x0, 1.0)
     ax.set_xlim(x0 - 0.01 * dx, x1 + 0.01 * dx)
     ax.set_ylim(y_lo, top_data + 0.12 * span_y)
@@ -647,7 +647,7 @@ def plot_pulse_profile(t_ms, prof, peaks, metrics, ax=None,
                 mec="k", mew=0.7, zorder=7, label="_nolegend_")
         ax.plot([], [], ls="none", marker=MK_BEST, color="#F59E0B", ms=8,
                 mec="k", mew=0.7,
-                label=(f"ứng viên SNR cao nhất: t={t_ap:.1f} ms, "
+                label=(f"ứng viên SNR lọc khớp cao nhất: t={t_ap:.1f} ms, "
                        f"SNR={p0.get('snr', 0.0):.0f}σ"))
         _w50 = metrics.get("w50_ms")
         if _w50:

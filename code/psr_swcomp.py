@@ -102,13 +102,23 @@ def barycentric_delay_s(ra_deg: float, dec_deg: float, t_utc,
         import astropy.units as u
     except Exception:
         return None
-    loc = EarthLocation(lat=lat_deg * u.deg, lon=lon_deg * u.deg,
-                        height=alt_m * u.m)
-    c = SkyCoord(ra_deg * u.deg, dec_deg * u.deg)
-    t = Time(t_utc, scale="utc", location=loc)
-    _, light_travel_time = t.light_travel_time(c, kind="barycentric").jd, \
-        t.light_travel_time(c, kind="barycentric")
-    return float(light_travel_time.to(u.s).value)
+    # IERS_Auto quá hạn 30 ngày mà máy KHÔNG có mạng (đài thường offline) →
+    # astropy ValueError. Bảng dự báo sai số vi giây cho t < 1 h — chấp nhận
+    # được: đặt auto_max_age=None (đúng gợi ý của astropy) rồi thử lại 1 lần.
+    for _try_iers in (1, 2):
+        try:
+            if _try_iers == 2:
+                from astropy.utils.iers import conf as _iers_conf
+                _iers_conf.auto_max_age = None
+            loc = EarthLocation(lat=lat_deg * u.deg, lon=lon_deg * u.deg,
+                                height=alt_m * u.m)
+            c = SkyCoord(ra_deg * u.deg, dec_deg * u.deg)
+            t = Time(t_utc, scale="utc", location=loc)
+            light_travel_time = t.light_travel_time(c, kind="barycentric")
+            return float(light_travel_time.to(u.s).value)
+        except Exception:                # noqa: BLE001
+            if _try_iers == 2:
+                return None              # không khả dụng → fold ngắn vẫn ổn
 
 
 # ---------------------------------------------------------------- transit

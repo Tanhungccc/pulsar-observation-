@@ -55,7 +55,7 @@ PANEL_ASPECT = {
 }
 
 
-def draw_panel(data: dict, fig, which: str = "a", pp=None):
+def draw_panel(data: dict, fig, which: str = "a", pp=None, resize_fig: bool = True):
     """Vẽ MỘT panel chiếm TOÀN BỘ khung — chữ đủ lớn, zoom mới có nghĩa.
 
     Vì sao: nhồi 4 panel vào dải ~230 px cao thì nhãn tiếng Việt đè nhau, người
@@ -67,8 +67,8 @@ def draw_panel(data: dict, fig, which: str = "a", pp=None):
     fig.clear()
     ax = fig.add_subplot(111)
     _asp = PANEL_ASPECT.get(which)
-    if _asp:
-        try:                                  # giữ đúng tỉ lệ thiết kế của panel
+    if resize_fig and _asp:
+        try:                                  # giữ đúng tỉ lệ thiết kế khi xuất file
             fig.set_size_inches(9.0, round(9.0 / _asp, 2))
         except Exception:                     # noqa: BLE001
             pass
@@ -254,3 +254,445 @@ def draw_detection_panels(data: dict, fig, pp=None) -> None:
             pp.finalize(fig)
         except Exception:                   # noqa: BLE001
             pass
+
+
+def save_render_cache(data: dict, out_dir: str) -> None:
+    """Lưu mảng vẽ vector gọn nhẹ (npz + json, không pickle) để mở lại vẫn zoom sắc."""
+    import json
+    import os
+    npz_path = os.path.join(out_dir, "fig2_render.npz")
+    meta_path = os.path.join(out_dir, "fig2_render.json")
+    arrs = {
+        "series": np.asarray(data["series"], dtype=np.float32),
+        "t_all_s": np.asarray(data["t_all_s"], dtype=np.float64),
+        "dm_grid": np.asarray(data["dm_grid"], dtype=np.float64),
+        "snr_dm": np.asarray(data["snr_dm"], dtype=np.float64),
+    }
+    fi = data.get("fold_info")
+    if fi is not None and "prof" in fi:
+        arrs["fold_prof"] = np.asarray(fi["prof"], dtype=np.float64)
+    sb = data.get("subband")
+    if sb is not None:
+        arrs["sb_freqs"] = np.asarray(sb["freqs_mhz"], dtype=np.float64)
+        arrs["sb_lags"] = np.asarray(sb["lags_ms"], dtype=np.float64)
+    np.savez_compressed(npz_path, **arrs)
+
+    def _clean_pulses(plist):
+        out = []
+        for p in plist or []:
+            out.append({k: (float(v) if isinstance(v, (int, float, np.floating, np.integer)) else v)
+                        for k, v in p.items() if k in ("t_s", "snr", "width_ms", "width_samples", "dm_consistent", "dm_sub")})
+        return out
+
+    meta = {
+        "pulses_ok": _clean_pulses(data.get("pulses_ok")),
+        "pulses": _clean_pulses(data.get("pulses")),
+        "dm_best": float(data["dm_best"]),
+        "dm_ref": (float(data["dm_ref"]) if data.get("dm_ref") is not None else None),
+        "pulse_thresh": float(data["pulse_thresh"]),
+        "use_fold_scan": bool(data["use_fold_scan"]),
+        "fold_meta": ({k: v for k, v in fi.items() if k != "prof"} if fi is not None else None),
+        "subband_meta": ({k: float(v) for k, v in sb.items() if k not in ("freqs_mhz", "lags_ms")}
+                         if sb is not None else None),
+        "met": dict(data.get("met") or {}),
+        "source": str(data.get("source") or ""),
+        "provenance": str(data.get("provenance") or ""),
+        "telescope": str(data.get("telescope") or ""),
+        "file": str(data.get("file") or ""),
+    }
+    with open(meta_path, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh, ensure_ascii=False)
+
+
+def load_render_cache(run_dir: str) -> dict | None:
+    """Đọc lại cache vector từ thư mục kết quả (trả None nếu chạy cũ chưa có)."""
+    import json
+    import os
+    npz_path = os.path.join(run_dir, "fig2_render.npz")
+    meta_path = os.path.join(run_dir, "fig2_render.json")
+    if not (os.path.exists(npz_path) and os.path.exists(meta_path)):
+        return None
+    try:
+        with open(meta_path, encoding="utf-8") as fh:
+            meta = json.load(fh)
+        with np.load(npz_path, allow_pickle=False) as z:
+            fi = None
+            if meta.get("fold_meta") and "fold_prof" in z:
+                fi = dict(meta["fold_meta"])
+                fi["prof"] = np.array(z["fold_prof"])
+            sb = None
+            if meta.get("subband_meta") and "sb_freqs" in z and "sb_lags" in z:
+                sb = dict(meta["subband_meta"])
+                sb["freqs_mhz"] = np.array(z["sb_freqs"])
+                sb["lags_ms"] = np.array(z["sb_lags"])
+            return {
+                "series": np.array(z["series"]),
+                "t_all_s": np.array(z["t_all_s"]),
+                "dm_grid": np.array(z["dm_grid"]),
+                "snr_dm": np.array(z["snr_dm"]),
+                "pulses_ok": meta.get("pulses_ok") or [],
+                "pulses": meta.get("pulses") or [],
+                "dm_best": float(meta["dm_best"]),
+                "dm_ref": meta.get("dm_ref"),
+                "pulse_thresh": float(meta["pulse_thresh"]),
+                "use_fold_scan": bool(meta.get("use_fold_scan", False)),
+                "fold_info": fi,
+                "subband": sb,
+                "met": meta.get("met") or {},
+                "source": meta.get("source") or "",
+                "provenance": meta.get("provenance") or "",
+                "telescope": meta.get("telescope") or "",
+                "file": meta.get("file") or "",
+            }
+    except Exception:                        # noqa: BLE001
+        return None
+
+
+class InteractivePlotController:
+    """Điều khiển zoom/pan/kéo giãn trục kiểu Desmos & GeoGebra cho 1 graph.
+
+    - Lăn chuột trên đồ thị: zoom quanh con trỏ (theo chế độ X+Y / X / Y, hoặc
+      Shift = chỉ X, Ctrl = chỉ Y).
+    - Lăn chuột / kéo trực tiếp trên vùng trục X (dưới trục) hoặc trục Y (trái
+      trục): kéo giãn hoặc co riêng trục đó.
+    - Kéo chuột trái trong vùng đồ thị: di chuyển (pan).
+    - Tự khớp Y (auto_y=True): khi zoom/pan trục X, trục Y tự co giãn theo dữ
+      liệu đang hiển thị trong [xmin, xmax].
+    - Nháy đúp chuột trái hoặc phím R: về khung chuẩn ban đầu (1.0×).
+    """
+
+    def __init__(self, canvas, on_change=None, on_hover=None):
+        self.canvas = canvas
+        self.on_change = on_change
+        self.on_hover = on_hover
+        self.axis_mode = "xy"     # 'xy' | 'x' | 'y'
+        self.auto_y = True
+        self._home: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self._drag: dict | None = None
+        self._xhair_v = None
+        self._xhair_h = None
+        self._snap_dot = None
+        self._cids = [
+            canvas.mpl_connect("scroll_event", self._on_scroll),
+            canvas.mpl_connect("button_press_event", self._on_press),
+            canvas.mpl_connect("motion_notify_event", self._on_motion),
+            canvas.mpl_connect("button_release_event", self._on_release),
+            canvas.mpl_connect("key_press_event", self._on_key),
+            canvas.mpl_connect("figure_leave_event", self._on_leave),
+        ]
+
+    def _active_ax(self):
+        axes = getattr(self.canvas.figure, "axes", None) or []
+        return axes[0] if axes else None
+
+    def _clear_crosshair(self) -> None:
+        try:
+            w = self.canvas.get_tk_widget()
+            w.delete("_xhair")
+        except Exception:                    # noqa: BLE001
+            pass
+
+    def _on_leave(self, _ev) -> None:
+        self._clear_crosshair()
+        if callable(self.on_hover):
+            try:
+                self.on_hover(None)
+            except Exception:                # noqa: BLE001
+                pass
+
+    def _update_crosshair(self, ev, ax) -> None:
+        if ev.xdata is None or ev.ydata is None or ax.images:
+            self._clear_crosshair()
+            if callable(self.on_hover):
+                try:
+                    self.on_hover(None)
+                except Exception:            # noqa: BLE001
+                    pass
+            return
+        qx, qy = float(ev.xdata), float(ev.ydata)
+        sx, sy, snapped = qx, qy, False
+        best_d2 = np.inf
+        x0, x1 = sorted(ax.get_xlim())
+        y0, y1 = sorted(ax.get_ylim())
+        dx_span = max(x1 - x0, 1e-12)
+        dy_span = max(y1 - y0, 1e-12)
+        for ln in ax.get_lines():
+            if not ln.get_visible():
+                continue
+            xd = np.asarray(ln.get_xdata(), float).ravel()
+            yd = np.asarray(ln.get_ydata(), float).ravel()
+            if xd.size < 2 or xd.size != yd.size:
+                continue
+            if xd.size == 2 and (np.isclose(xd[0], xd[1]) or np.isclose(yd[0], yd[1])):
+                continue
+            # Nhanh O(log N) nếu trục X tăng dần (chuỗi thời gian, DM curve)
+            if xd.size > 32 and xd[0] < xd[-1] and xd[1] >= xd[0]:
+                i_lo = max(0, int(np.searchsorted(xd, x0, side="left")))
+                i_hi = min(xd.size, int(np.searchsorted(xd, x1, side="right")))
+                if i_hi <= i_lo:
+                    continue
+                pos = int(np.searchsorted(xd[i_lo:i_hi], qx)) + i_lo
+                cands = [k for k in (pos - 1, pos, pos + 1) if i_lo <= k < i_hi]
+                if not cands:
+                    continue
+                for k in cands:
+                    if not (np.isfinite(xd[k]) and np.isfinite(yd[k])):
+                        continue
+                    d2 = ((xd[k] - qx) / dx_span) ** 2 + ((yd[k] - qy) / dy_span) ** 2
+                    if d2 < best_d2:
+                        best_d2 = float(d2)
+                        sx, sy = float(xd[k]), float(yd[k])
+                        snapped = True
+            else:
+                vis = (xd >= x0) & (xd <= x1) & np.isfinite(xd) & np.isfinite(yd)
+                if not vis.any():
+                    continue
+                xv, yv = xd[vis], yd[vis]
+                d2 = ((xv - qx) / dx_span) ** 2 + ((yv - qy) / dy_span) ** 2
+                idx = int(np.argmin(d2))
+                if d2[idx] < best_d2:
+                    best_d2 = float(d2[idx])
+                    sx, sy = float(xv[idx]), float(yv[idx])
+                    snapped = True
+
+        # Vẽ crosshair trực tiếp trên tk.Canvas (0 ms, không redraw Matplotlib)
+        try:
+            w = self.canvas.get_tk_widget()
+            w.delete("_xhair")
+            fig_h = float(self.canvas.figure.bbox.height)
+            bb = ax.bbox
+            px, py_mpl = ax.transData.transform((sx, sy))
+            py = fig_h - py_mpl
+            bx0, bx1 = float(bb.x0), float(bb.x1)
+            by0, by1 = fig_h - float(bb.y1), fig_h - float(bb.y0)
+            w.create_line(px, by0, px, by1, fill="#2563EB", dash=(3, 3), width=1, tags="_xhair")
+            w.create_line(bx0, py, bx1, py, fill="#2563EB", dash=(3, 3), width=1, tags="_xhair")
+            if snapped:
+                w.create_oval(px - 4, py - 4, px + 4, py + 4,
+                              fill="#2563EB", outline="#FFFFFF", width=1.5, tags="_xhair")
+        except Exception:                    # noqa: BLE001
+            pass
+
+        if callable(self.on_hover):
+            try:
+                self.on_hover((sx, sy, ax.get_xlabel(), ax.get_ylabel(), snapped))
+            except Exception:                # noqa: BLE001
+                pass
+
+    def set_home(self) -> None:
+        self._clear_crosshair()
+        ax = self._active_ax()
+        if ax is None:
+            self._home = None
+            return
+        self._home = (tuple(float(v) for v in ax.get_xlim()),
+                      tuple(float(v) for v in ax.get_ylim()))
+        self._notify()
+
+    def reset(self) -> None:
+        self._clear_crosshair()
+        ax = self._active_ax()
+        if ax is None or self._home is None:
+            return
+        ax.set_xlim(*self._home[0])
+        ax.set_ylim(*self._home[1])
+        self.canvas.draw_idle()
+        self._notify()
+
+    def set_axis_mode(self, mode: str) -> None:
+        if mode in ("xy", "x", "y"):
+            self.axis_mode = mode
+
+    def set_auto_y(self, enabled: bool) -> None:
+        self.auto_y = bool(enabled)
+        if self.auto_y:
+            ax = self._active_ax()
+            if ax is not None:
+                self._autofit_y(ax)
+                self.canvas.draw_idle()
+                self._notify()
+
+    def zoom_factors(self) -> tuple[float, float]:
+        ax = self._active_ax()
+        if ax is None or self._home is None:
+            return (1.0, 1.0)
+        hx0, hx1 = self._home[0]
+        hy0, hy1 = self._home[1]
+        cx0, cx1 = ax.get_xlim()
+        cy0, cy1 = ax.get_ylim()
+        zx = abs(hx1 - hx0) / max(abs(cx1 - cx0), 1e-12)
+        zy = abs(hy1 - hy0) / max(abs(cy1 - cy0), 1e-12)
+        return (zx, zy)
+
+    def _notify(self) -> None:
+        if callable(self.on_change):
+            try:
+                zx, zy = self.zoom_factors()
+                self.on_change(zx, zy)
+            except Exception:                # noqa: BLE001
+                pass
+
+    def _zone(self, ev, ax) -> str:
+        """Phân vùng: 'plot' | 'x_axis' | 'y_axis' | 'none'."""
+        bb = ax.bbox
+        x, y = ev.x, ev.y
+        if x is None or y is None:
+            return "none"
+        if bb.x0 <= x <= bb.x1 and bb.y0 <= y <= bb.y1:
+            return "plot"
+        if bb.x0 <= x <= bb.x1 and y < bb.y0 and y >= bb.y0 - 48:
+            return "x_axis"
+        if bb.y0 <= y <= bb.y1 and x < bb.x0 and x >= bb.x0 - 64:
+            return "y_axis"
+        return "none"
+
+    def _autofit_y(self, ax) -> None:
+        """Tự co giãn trục Y vừa khít phần dữ liệu nằm trong [xmin, xmax]."""
+        x0, x1 = sorted(ax.get_xlim())
+        ymins, ymaxs = [], []
+        for ln in ax.get_lines():
+            if not ln.get_visible():
+                continue
+            xd = np.asarray(ln.get_xdata(), float).ravel()
+            yd = np.asarray(ln.get_ydata(), float).ravel()
+            if xd.size == 0 or xd.size != yd.size:
+                continue
+            if xd.size == 2 and np.isclose(xd[0], xd[1]) and np.allclose(np.abs(yd), [0., 1.]):
+                continue
+            sel = (xd >= x0) & (xd <= x1) & np.isfinite(yd)
+            if sel.any():
+                ymins.append(float(np.min(yd[sel])))
+                ymaxs.append(float(np.max(yd[sel])))
+        if not ymins:
+            return
+        lo, hi = min(ymins), max(ymaxs)
+        span = max(hi - lo, 1e-9)
+        top_pad = 0.22 if ax.get_legend() is not None else 0.10
+        ax.set_ylim(lo - 0.08 * span, hi + top_pad * span)
+
+    def _on_scroll(self, ev) -> None:
+        self._clear_crosshair()
+        ax = self._active_ax()
+        if ax is None:
+            return
+        zone = self._zone(ev, ax)
+        if zone == "none":
+            return
+        step = getattr(ev, "step", 0) or (1 if getattr(ev, "button", "") == "up" else -1)
+        scale = 0.84 if step > 0 else (1.0 / 0.84)
+
+        key = str(getattr(ev, "key", "") or "").lower()
+        if zone == "x_axis" or "shift" in key:
+            do_x, do_y = True, False
+        elif zone == "y_axis" or "control" in key or "ctrl" in key:
+            do_x, do_y = False, True
+        else:
+            do_x = self.axis_mode in ("xy", "x")
+            do_y = self.axis_mode in ("xy", "y")
+
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        inv = ax.transData.inverted()
+        dx_pt, dy_pt = inv.transform((ev.x, ev.y))
+        cx = dx_pt if (ev.xdata is None) else ev.xdata
+        cy = dy_pt if (ev.ydata is None) else ev.ydata
+
+        if do_x:
+            ax.set_xlim(cx - (cx - x0) * scale, cx + (x1 - cx) * scale)
+        if do_y:
+            ax.set_ylim(cy - (cy - y0) * scale, cy + (y1 - cy) * scale)
+        elif do_x and self.auto_y and not ax.images:
+            self._autofit_y(ax)
+
+        self.canvas.draw_idle()
+        self._notify()
+
+    def _on_press(self, ev) -> None:
+        self._clear_crosshair()
+        ax = self._active_ax()
+        if ax is None or ev.button != 1:
+            return
+        if getattr(ev, "dblclick", False):
+            self.reset()
+            return
+        zone = self._zone(ev, ax)
+        if zone == "none":
+            return
+        self._drag = {
+            "zone": zone,
+            "x_px": ev.x,
+            "y_px": ev.y,
+            "xlim": ax.get_xlim(),
+            "ylim": ax.get_ylim(),
+            "bb": ax.bbox,
+        }
+
+    def _on_motion(self, ev) -> None:
+        ax = self._active_ax()
+        if ax is None:
+            return
+        # Đổi hình con trỏ theo vùng (giống GeoGebra/Desmos)
+        if self._drag is None:
+            zone = self._zone(ev, ax)
+            cur = {"x_axis": "sb_h_double_arrow",
+                   "y_axis": "sb_v_double_arrow",
+                   "plot": "crosshair"}.get(zone, "")
+            try:
+                self.canvas.get_tk_widget().configure(cursor=cur)
+            except Exception:                # noqa: BLE001
+                pass
+            if zone == "plot":
+                self._update_crosshair(ev, ax)
+            else:
+                self._clear_crosshair()
+                if callable(self.on_hover):
+                    try:
+                        self.on_hover(None)
+                    except Exception:        # noqa: BLE001
+                        pass
+            return
+        if ev.x is None or ev.y is None:
+            return
+        d = self._drag
+        z = d["zone"]
+        dx_px = ev.x - d["x_px"]
+        dy_px = ev.y - d["y_px"]
+        x0, x1 = d["xlim"]
+        y0, y1 = d["ylim"]
+        bw = max(d["bb"].width, 1.0)
+        bh = max(d["bb"].height, 1.0)
+
+        if z == "x_axis":
+            # Kéo sang phải = giãn trục X, kéo sang trái = nén trục X
+            factor = float(np.exp(-dx_px / 140.0))
+            cx = 0.5 * (x0 + x1)
+            half = 0.5 * (x1 - x0) * factor
+            ax.set_xlim(cx - half, cx + half)
+            if self.auto_y and not ax.images:
+                self._autofit_y(ax)
+        elif z == "y_axis":
+            # Kéo lên = giãn trục Y, kéo xuống = nén trục Y
+            factor = float(np.exp(-dy_px / 120.0))
+            cy = 0.5 * (y0 + y1)
+            half = 0.5 * (y1 - y0) * factor
+            ax.set_ylim(cy - half, cy + half)
+        elif z == "plot":
+            sx = (x1 - x0) / bw
+            sy = (y1 - y0) / bh
+            if self.axis_mode in ("xy", "x"):
+                ax.set_xlim(x0 - dx_px * sx, x1 - dx_px * sx)
+            if self.axis_mode in ("xy", "y"):
+                ax.set_ylim(y0 - dy_px * sy, y1 - dy_px * sy)
+            elif self.axis_mode == "x" and self.auto_y and not ax.images:
+                self._autofit_y(ax)
+
+        self.canvas.draw_idle()
+        self._notify()
+
+    def _on_release(self, _ev) -> None:
+        self._drag = None
+
+    def _on_key(self, ev) -> None:
+        if str(getattr(ev, "key", "")).lower() == "r":
+            self.reset()
+

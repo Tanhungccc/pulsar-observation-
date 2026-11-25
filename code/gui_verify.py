@@ -221,15 +221,15 @@ def main(fast=False):
     chk("biểu đồ preview vẽ được vào khung xem",
         _surf, f"mode={_mode} · trục={len(app.det_fig.axes)} · "
                f"ảnh={'có' if getattr(app, '_fig_img', None) else 'không'}")
-    chk("preview mặc định một panel, không gắn zoom/slider/toolbar",
+    chk("preview một panel kèm điều khiển zoom X/Y kiểu Desmos",
         app.fig_panel.get() in {"a", "b", "c", "d"}
-        and getattr(app, "det_zoom", None) is None
-        and getattr(app, "det_sliders", None) is None
-        and getattr(app, "det_toolbar", None) is None,
-        f"panel={app.fig_panel.get()} · zoom controls removed")
-    chk("không còn action zoom/viewer trong ứng dụng",
-        not hasattr(app, "open_large_figure")
-        and not hasattr(app, "open_figure_vector"))
+        and getattr(app, "det_zoom", None) is not None
+        and getattr(app, "det_auto_y", None) is not None,
+        f"panel={app.fig_panel.get()} · interactive X/Y zoom active")
+    chk("xuất đủ 4 graph đơn lẻ (fig2_panel_a..d.png + .svg)",
+        all(os.path.exists(os.path.join(out_dir, f"fig2_panel_{k}.{ext}"))
+            for k in ("a", "b", "c", "d") for ext in ("png", "svg")),
+        out_dir)
 
     opened.clear(); app.open_report()
     chk("nút 'Mở báo cáo TXT' mở đúng file", bool(opened) and opened[-1].endswith(
